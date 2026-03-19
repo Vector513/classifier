@@ -4,6 +4,7 @@ spring-boot = "3.2.5"
 spring-dependency-management = "1.1.5"
 springdoc = "2.5.0"
 testcontainers = "1.19.8"
+mockito-kotlin = "5.3.1"
 
 [libraries]
 # Spring Boot
@@ -25,6 +26,7 @@ springdoc-openapi-ui = { module = "org.springdoc:springdoc-openapi-starter-webmv
 # Testing
 testcontainers-postgresql = { module = "org.testcontainers:postgresql", version.ref = "testcontainers" }
 testcontainers-junit = { module = "org.testcontainers:junit-jupiter", version.ref = "testcontainers" }
+mockito-kotlin = { module = "org.mockito.kotlin:mockito-kotlin", version.ref = "mockito-kotlin" }
 
 [plugins]
 spring-boot = { id = "org.springframework.boot", version.ref = "spring-boot" }
