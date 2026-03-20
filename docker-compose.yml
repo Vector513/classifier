@@ -13,5 +13,17 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
 
+  app:
+    build: .
+    container_name: classifier-app
+    ports:
+      - "8080:8080"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/classifier
+      SPRING_DATASOURCE_USERNAME: classifier
+      SPRING_DATASOURCE_PASSWORD: classifier
+    depends_on:
+      - postgres
+
 volumes:
   pgdata:
