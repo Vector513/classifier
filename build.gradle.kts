@@ -9,43 +9,46 @@ plugins {
 group = "com.classifier"
 version = "1.0.0"
 
-java {
-    sourceCompatibility = JavaVersion.VERSION_17
-}
-
 repositories {
     mavenCentral()
 }
 
 dependencies {
-    // Spring Boot
     implementation(libs.spring.boot.starter.web)
     implementation(libs.spring.boot.starter.data.jpa)
     implementation(libs.spring.boot.starter.validation)
-
-    // Kotlin
     implementation(libs.jackson.module.kotlin)
     implementation(libs.kotlin.reflect)
-
-    // PostgreSQL
     runtimeOnly(libs.postgresql)
-
-    // Swagger UI
     implementation(libs.springdoc.openapi.ui)
+    testCompileOnly("org.projectlombok:lombok:1.18.30")
+    testAnnotationProcessor("org.projectlombok:lombok:1.18.30")
 
-    // Тесты
     testImplementation(libs.spring.boot.starter.test)
     testImplementation(libs.testcontainers.postgresql)
     testImplementation(libs.testcontainers.junit)
     testImplementation(libs.mockito.kotlin)
 }
 
-kotlin {
-    compilerOptions {
-        freeCompilerArgs.addAll("-Xjsr305=strict")
+// Явно указываем Java версию для всех задач
+java {
+    sourceCompatibility = JavaVersion.VERSION_17
+    targetCompatibility = JavaVersion.VERSION_17
+}
+
+tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile> {
+    kotlinOptions {
+        freeCompilerArgs = listOf("-Xjsr305=strict")
+        jvmTarget = "17"  // Меняем с 8 на 17
     }
 }
 
 tasks.withType<Test> {
     useJUnitPlatform()
+}
+
+// Дополнительно настраиваем toolchain для единообразия
+tasks.withType<JavaCompile> {
+    sourceCompatibility = "17"
+    targetCompatibility = "17"
 }
