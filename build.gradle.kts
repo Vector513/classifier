@@ -21,8 +21,10 @@ dependencies {
     implementation(libs.kotlin.reflect)
     runtimeOnly(libs.postgresql)
     implementation(libs.springdoc.openapi.ui)
-    testCompileOnly("org.projectlombok:lombok:1.18.30")
-    testAnnotationProcessor("org.projectlombok:lombok:1.18.30")
+    compileOnly(libs.lombok)
+    annotationProcessor(libs.lombok)
+    testCompileOnly(libs.lombok)
+    testAnnotationProcessor(libs.lombok)
 
     testImplementation(libs.spring.boot.starter.test)
     testImplementation(libs.testcontainers.postgresql)
@@ -30,7 +32,6 @@ dependencies {
     testImplementation(libs.mockito.kotlin)
 }
 
-// Явно указываем Java версию для всех задач
 java {
     sourceCompatibility = JavaVersion.VERSION_17
     targetCompatibility = JavaVersion.VERSION_17
@@ -39,7 +40,7 @@ java {
 tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile> {
     kotlinOptions {
         freeCompilerArgs = listOf("-Xjsr305=strict")
-        jvmTarget = "17"  // Меняем с 8 на 17
+        jvmTarget = "17"
     }
 }
 
@@ -47,7 +48,6 @@ tasks.withType<Test> {
     useJUnitPlatform()
 }
 
-// Дополнительно настраиваем toolchain для единообразия
 tasks.withType<JavaCompile> {
     sourceCompatibility = "17"
     targetCompatibility = "17"
