@@ -106,3 +106,106 @@ VALUES (29, 'LAPTOPS-LENOVO-YOGA', 'Yoga 9i', 11, 1, 1, NOW(), NOW()) ON CONFLIC
 -- Сброс sequence чтобы новые записи получали id > 29
 SELECT setval('classifier_node_id_seq', 29);
 SELECT setval('unit_of_measure_id_seq', 4);
+
+-- ─── Классы перечислений ───────────────────────────────────────────────────
+INSERT INTO enumeration_class (id, code, name, description, created_at, updated_at)
+VALUES (1, 'COLOR', 'Цвет', 'Цветовая гамма изделия', NOW(), NOW()) ON CONFLICT DO NOTHING;
+
+INSERT INTO enumeration_class (id, code, name, description, created_at, updated_at)
+VALUES (2, 'STORAGE', 'Объём памяти', 'Объём встроенной памяти устройства', NOW(), NOW()) ON CONFLICT DO NOTHING;
+
+INSERT INTO enumeration_class (id, code, name, description, created_at, updated_at)
+VALUES (3, 'CONNECTOR', 'Тип разъёма', 'Тип физического разъёма для подключения', NOW(), NOW()) ON CONFLICT DO NOTHING;
+
+INSERT INTO enumeration_class (id, code, name, description, created_at, updated_at)
+VALUES (4, 'OS', 'Операционная система', 'Предустановленная операционная система', NOW(), NOW()) ON CONFLICT DO NOTHING;
+
+-- ─── Перечисления ──────────────────────────────────────────────────────────
+-- Цвета смартфонов (привязан к узлу PHONES id=2)
+INSERT INTO enumeration (id, code, name, enumeration_class_id, classifier_node_id, created_at, updated_at)
+VALUES (1, 'PHONE-COLORS', 'Цвета смартфонов', 1, 2, NOW(), NOW()) ON CONFLICT DO NOTHING;
+
+-- Цвета ноутбуков (привязан к узлу LAPTOPS id=3)
+INSERT INTO enumeration (id, code, name, enumeration_class_id, classifier_node_id, created_at, updated_at)
+VALUES (2, 'LAPTOP-COLORS', 'Цвета ноутбуков', 1, 3, NOW(), NOW()) ON CONFLICT DO NOTHING;
+
+-- Объём памяти смартфонов
+INSERT INTO enumeration (id, code, name, enumeration_class_id, classifier_node_id, created_at, updated_at)
+VALUES (3, 'PHONE-STORAGE', 'Память смартфонов', 2, 2, NOW(), NOW()) ON CONFLICT DO NOTHING;
+
+-- Объём памяти ноутбуков
+INSERT INTO enumeration (id, code, name, enumeration_class_id, classifier_node_id, created_at, updated_at)
+VALUES (4, 'LAPTOP-STORAGE', 'Память ноутбуков', 2, 3, NOW(), NOW()) ON CONFLICT DO NOTHING;
+
+-- Типы разъёмов для кабелей
+INSERT INTO enumeration (id, code, name, enumeration_class_id, classifier_node_id, created_at, updated_at)
+VALUES (5, 'CABLE-CONNECTORS', 'Разъёмы кабелей', 3, 19, NOW(), NOW()) ON CONFLICT DO NOTHING;
+
+-- Операционные системы смартфонов
+INSERT INTO enumeration (id, code, name, enumeration_class_id, classifier_node_id, created_at, updated_at)
+VALUES (6, 'PHONE-OS', 'ОС смартфонов', 4, 2, NOW(), NOW()) ON CONFLICT DO NOTHING;
+
+-- ─── Значения: Цвета смартфонов ───────────────────────────────────────────
+INSERT INTO enumeration_value (id, code, name, enumeration_id, sort_order, created_at, updated_at)
+VALUES (1,  'BLACK',  'Чёрный',      1, 0, NOW(), NOW()) ON CONFLICT DO NOTHING;
+INSERT INTO enumeration_value (id, code, name, enumeration_id, sort_order, created_at, updated_at)
+VALUES (2,  'WHITE',  'Белый',       1, 1, NOW(), NOW()) ON CONFLICT DO NOTHING;
+INSERT INTO enumeration_value (id, code, name, enumeration_id, sort_order, created_at, updated_at)
+VALUES (3,  'GOLD',   'Золотой',     1, 2, NOW(), NOW()) ON CONFLICT DO NOTHING;
+INSERT INTO enumeration_value (id, code, name, enumeration_id, sort_order, created_at, updated_at)
+VALUES (4,  'BLUE',   'Синий',       1, 3, NOW(), NOW()) ON CONFLICT DO NOTHING;
+INSERT INTO enumeration_value (id, code, name, enumeration_id, sort_order, created_at, updated_at)
+VALUES (5,  'GREEN',  'Зелёный',     1, 4, NOW(), NOW()) ON CONFLICT DO NOTHING;
+
+-- ─── Значения: Цвета ноутбуков ────────────────────────────────────────────
+INSERT INTO enumeration_value (id, code, name, enumeration_id, sort_order, created_at, updated_at)
+VALUES (6,  'SILVER',     'Серебристый', 2, 0, NOW(), NOW()) ON CONFLICT DO NOTHING;
+INSERT INTO enumeration_value (id, code, name, enumeration_id, sort_order, created_at, updated_at)
+VALUES (7,  'SPACE-GRAY', 'Серый космос', 2, 1, NOW(), NOW()) ON CONFLICT DO NOTHING;
+INSERT INTO enumeration_value (id, code, name, enumeration_id, sort_order, created_at, updated_at)
+VALUES (8,  'MIDNIGHT',   'Полуночный',  2, 2, NOW(), NOW()) ON CONFLICT DO NOTHING;
+
+-- ─── Значения: Память смартфонов ──────────────────────────────────────────
+INSERT INTO enumeration_value (id, code, name, enumeration_id, sort_order, created_at, updated_at)
+VALUES (9,  'GB64',  '64 ГБ',  3, 0, NOW(), NOW()) ON CONFLICT DO NOTHING;
+INSERT INTO enumeration_value (id, code, name, enumeration_id, sort_order, created_at, updated_at)
+VALUES (10, 'GB128', '128 ГБ', 3, 1, NOW(), NOW()) ON CONFLICT DO NOTHING;
+INSERT INTO enumeration_value (id, code, name, enumeration_id, sort_order, created_at, updated_at)
+VALUES (11, 'GB256', '256 ГБ', 3, 2, NOW(), NOW()) ON CONFLICT DO NOTHING;
+INSERT INTO enumeration_value (id, code, name, enumeration_id, sort_order, created_at, updated_at)
+VALUES (12, 'GB512', '512 ГБ', 3, 3, NOW(), NOW()) ON CONFLICT DO NOTHING;
+INSERT INTO enumeration_value (id, code, name, enumeration_id, sort_order, created_at, updated_at)
+VALUES (13, 'TB1',   '1 ТБ',   3, 4, NOW(), NOW()) ON CONFLICT DO NOTHING;
+
+-- ─── Значения: Память ноутбуков ───────────────────────────────────────────
+INSERT INTO enumeration_value (id, code, name, enumeration_id, sort_order, created_at, updated_at)
+VALUES (14, 'SSD256',  '256 ГБ SSD',  4, 0, NOW(), NOW()) ON CONFLICT DO NOTHING;
+INSERT INTO enumeration_value (id, code, name, enumeration_id, sort_order, created_at, updated_at)
+VALUES (15, 'SSD512',  '512 ГБ SSD',  4, 1, NOW(), NOW()) ON CONFLICT DO NOTHING;
+INSERT INTO enumeration_value (id, code, name, enumeration_id, sort_order, created_at, updated_at)
+VALUES (16, 'SSD1TB',  '1 ТБ SSD',    4, 2, NOW(), NOW()) ON CONFLICT DO NOTHING;
+INSERT INTO enumeration_value (id, code, name, enumeration_id, sort_order, created_at, updated_at)
+VALUES (17, 'SSD2TB',  '2 ТБ SSD',    4, 3, NOW(), NOW()) ON CONFLICT DO NOTHING;
+
+-- ─── Значения: Разъёмы кабелей ────────────────────────────────────────────
+INSERT INTO enumeration_value (id, code, name, enumeration_id, sort_order, created_at, updated_at)
+VALUES (18, 'USB-C',     'USB-C',      5, 0, NOW(), NOW()) ON CONFLICT DO NOTHING;
+INSERT INTO enumeration_value (id, code, name, enumeration_id, sort_order, created_at, updated_at)
+VALUES (19, 'LIGHTNING', 'Lightning',  5, 1, NOW(), NOW()) ON CONFLICT DO NOTHING;
+INSERT INTO enumeration_value (id, code, name, enumeration_id, sort_order, created_at, updated_at)
+VALUES (20, 'MICRO-USB', 'Micro-USB',  5, 2, NOW(), NOW()) ON CONFLICT DO NOTHING;
+INSERT INTO enumeration_value (id, code, name, enumeration_id, sort_order, created_at, updated_at)
+VALUES (21, 'JACK35',    'Jack 3.5 мм', 5, 3, NOW(), NOW()) ON CONFLICT DO NOTHING;
+
+-- ─── Значения: ОС смартфонов ──────────────────────────────────────────────
+INSERT INTO enumeration_value (id, code, name, enumeration_id, sort_order, created_at, updated_at)
+VALUES (22, 'ANDROID', 'Android', 6, 0, NOW(), NOW()) ON CONFLICT DO NOTHING;
+INSERT INTO enumeration_value (id, code, name, enumeration_id, sort_order, created_at, updated_at)
+VALUES (23, 'IOS',     'iOS',     6, 1, NOW(), NOW()) ON CONFLICT DO NOTHING;
+INSERT INTO enumeration_value (id, code, name, enumeration_id, sort_order, created_at, updated_at)
+VALUES (24, 'HARMONY', 'HarmonyOS', 6, 2, NOW(), NOW()) ON CONFLICT DO NOTHING;
+
+-- Сброс sequences для новых таблиц
+SELECT setval('enumeration_class_id_seq', 4);
+SELECT setval('enumeration_id_seq', 6);
+SELECT setval('enumeration_value_id_seq', 24);
