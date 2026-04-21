@@ -1,7 +1,7 @@
 # Классификатор изделий — Интернет-магазин электроники
 
-REST API сервис для работы с древовидным справочником категорий товаров.
-Реализует полный CRUD, обход дерева, диагностику циклов, поиск и переупорядочивание вершин.
+REST API сервис для работы с древовидным справочником категорий товаров и моделирования перечислений атрибутов.
+Реализует полный CRUD, обход дерева, диагностику циклов, поиск, управление перечислениями и выбор значений атрибутов для узлов.
 
 ## Требования
 
@@ -36,8 +36,6 @@ http://localhost:8080/swagger-ui.html
 docker-compose up --build
 ```
 
-Приложение будет доступно на `http://localhost:8080`, Swagger UI — `http://localhost:8080/swagger-ui.html`.
-
 ## Остановка
 
 ```bash
@@ -56,7 +54,9 @@ docker-compose down -v
 ./gradlew test
 ```
 
-Требуется Docker — тесты используют Testcontainers (поднимает временный PostgreSQL).
+Требуется запущенный Docker — тесты используют Testcontainers (поднимает временный PostgreSQL).
+
+---
 
 ## API-эндпоинты
 
@@ -89,87 +89,178 @@ docker-compose down -v
 | `PUT` | `/{id}` | Обновить |
 | `DELETE` | `/{id}` | Удалить |
 
+### Классы перечислений (`/api/v1/enumeration-classes`)
+
+| Метод | Путь | Описание |
+|-------|------|----------|
+| `GET` | `/` | Все классы перечислений |
+| `GET` | `/{id}` | Класс по ID |
+| `POST` | `/` | Создать класс |
+| `PATCH` | `/{id}` | Обновить класс |
+| `DELETE` | `/{id}` | Удалить класс (без перечислений) |
+| `GET` | `/{id}/enumerations` | Все перечисления класса |
+
+### Перечисления (`/api/v1/enumerations`)
+
+| Метод | Путь | Описание |
+|-------|------|----------|
+| `GET` | `/{id}` | Перечисление со значениями |
+| `POST` | `/` | Создать перечисление |
+| `PATCH` | `/{id}` | Обновить перечисление |
+| `DELETE` | `/{id}` | Удалить перечисление (без значений) |
+| `GET` | `/{id}/values` | Список значений (по порядку) |
+| `POST` | `/{id}/values` | Добавить значение |
+| `PATCH` | `/{id}/values/{valueId}` | Редактировать значение |
+| `DELETE` | `/{id}/values/{valueId}` | Удалить значение |
+| `PATCH` | `/{id}/values/{valueId}/reorder` | Изменить порядок значения |
+
+### Атрибуты узлов (`/api/v1/nodes/{nodeId}/attributes`)
+
+| Метод | Путь | Описание |
+|-------|------|----------|
+| `GET` | `/` | Все выбранные значения для узла |
+| `GET` | `/{enumerationId}` | Выбранное значение конкретного перечисления |
+| `PUT` | `/` | Выбрать значение перечисления (создаёт или заменяет) |
+| `DELETE` | `/{enumerationId}` | Снять выбор значения |
+
+---
+
 ## Стек
 
 | Компонент | Технология |
 |-----------|-----------|
-| Языки | Kotlin + Java |
+| Языки | Kotlin (сущности, DTO, сервисы) + Java (контроллеры) |
 | Фреймворк | Spring Boot 3 |
 | БД | PostgreSQL 15 |
 | ORM | Spring Data JPA (Hibernate) |
 | API-документация | springdoc-openapi (Swagger UI) |
 | Сборка | Gradle (Kotlin DSL) + Version Catalog (TOML) |
-| Тесты | JUnit 5 + Testcontainers + MockMvc |
+| Тесты | JUnit 5 + Testcontainers + Mockito + MockMvc |
 | Контейнеризация | Docker + Docker Compose |
+
+---
 
 ## Архитектура
 
-Layered Architecture (слоистая) — 4 слоя:
+Layered Architecture — 4 слоя:
 
 ```
-Controller  →  принимает HTTP-запросы, Swagger-аннотации
+Controller  →  принимает HTTP-запросы, Swagger-аннотации   (Java)
     ↓
-Service     →  бизнес-логика (CRUD, обход дерева, валидация)
+Service     →  бизнес-логика (CRUD, обход дерева, валидация) (Kotlin)
     ↓
-Repository  →  доступ к БД (Spring Data JPA + CTE-запросы)
+Repository  →  доступ к БД (Spring Data JPA + CTE-запросы)  (Kotlin)
     ↓
-Entity      →  JPA-сущности (маппинг на таблицы PostgreSQL)
+Entity      →  JPA-сущности (маппинг на таблицы PostgreSQL)  (Kotlin)
 ```
 
-Зависимости однонаправленные: Controller зависит от Service, Service от Repository. DI через конструктор (Spring IoC).
+---
 
 ## Структура проекта
 
 ```
 src/main/kotlin/com/classifier/
-├── ClassifierApplication.kt          — точка входа
+├── ClassifierApplication.kt              — точка входа + OpenAPI-бин
 ├── entity/
-│   ├── ClassifierNode.kt             — вершина классификатора
-│   └── UnitOfMeasure.kt              — единица измерения
+│   ├── ClassifierNode.kt                 — вершина классификатора
+│   ├── UnitOfMeasure.kt                  — единица измерения
+│   ├── EnumerationClass.kt               — класс перечислений (Цвет, Размер…)
+│   ├── Enumeration.kt                    — перечисление (Цвета телефонов)
+│   ├── EnumerationValue.kt               — значение перечисления (Чёрный, Белый…)
+│   └── NodeAttributeValue.kt             — выбранное значение для узла классификатора
 ├── dto/
-│   ├── NodeRequests.kt               — CreateNodeRequest, UpdateNodeRequest, MoveNodeRequest, ReorderRequest
-│   ├── NodeResponses.kt              — NodeResponse, TreeNodeResponse
-│   ├── UnitOfMeasureDtos.kt          — UnitOfMeasureRequest, UnitOfMeasureResponse
-│   └── CommonDtos.kt                 — ErrorResponse, ValidationResponse
+│   ├── NodeRequests.kt                   — CreateNodeRequest, UpdateNodeRequest…
+│   ├── NodeResponses.kt                  — NodeResponse, TreeNodeResponse
+│   ├── UnitOfMeasureDtos.kt              — UnitOfMeasureRequest/Response
+│   ├── EnumerationDtos.kt                — все DTO для перечислений
+│   ├── NodeAttributeValueDtos.kt         — SelectEnumerationValueRequest/Response
+│   └── CommonDtos.kt                     — ErrorResponse, ValidationResponse
 ├── repository/
-│   ├── ClassifierNodeRepository.kt   — CTE-запросы для обхода дерева
-│   └── UnitOfMeasureRepository.kt
+│   ├── ClassifierNodeRepository.kt       — CTE-запросы для обхода дерева
+│   ├── UnitOfMeasureRepository.kt
+│   ├── EnumerationClassRepository.kt
+│   ├── EnumerationRepository.kt
+│   ├── EnumerationValueRepository.kt
+│   └── NodeAttributeValueRepository.kt
 ├── service/
-│   ├── ClassifierNodeService.kt      — CRUD, перемещение, переупорядочивание
-│   ├── TreeTraversalService.kt       — потомки, предки, терминальные, циклы
-│   └── UnitOfMeasureService.kt
+│   ├── ClassifierNodeService.kt          — CRUD, перемещение, переупорядочивание
+│   ├── TreeTraversalService.kt           — потомки, предки, терминальные, циклы
+│   ├── UnitOfMeasureService.kt
+│   ├── EnumerationService.kt             — управление перечислениями и значениями
+│   └── NodeAttributeValueService.kt      — выбор значения перечисления для узла
 ├── controller/
-│   ├── ClassifierNodeController.kt   — 14 REST-эндпоинтов
-│   ├── UnitOfMeasureController.kt    — 5 REST-эндпоинтов
-│   └── GlobalExceptionHandler.kt     — обработка ошибок (404, 409, 400, 422)
+│   └── GlobalExceptionHandler.kt         — обработка ошибок (404, 409, 400, 422)
 ├── mapper/
-│   └── NodeMapper.kt                 — Entity → DTO
+│   └── NodeMapper.kt                     — Entity → DTO
 └── exception/
-    └── Exceptions.kt                 — EntityNotFoundException, DuplicateCodeException и др.
+    └── Exceptions.kt                     — все исключения приложения
+
+src/main/java/com/classifier/controller/
+├── ClassifierNodeController.java         — 14 REST-эндпоинтов
+├── UnitOfMeasureController.java          — 5 REST-эндпоинтов
+├── EnumerationClassController.java       — 6 REST-эндпоинтов
+├── EnumerationController.java            — 9 REST-эндпоинтов
+└── NodeAttributeValueController.java     — 4 REST-эндпоинта
 
 src/main/resources/
-├── application.yml                   — конфигурация (БД, JPA, Swagger)
-└── data.sql                          — тестовые данные (каталог электроники, 29 категорий)
+├── application.yml                       — конфигурация (БД, JPA, Swagger)
+├── data.sql                              — начальные данные (29 узлов, 4 класса, 6 перечислений, 24 значения)
+└── procedures.sql                        — хранимые SQL-процедуры для работы с перечислениями
 
 src/test/kotlin/com/classifier/
-├── repository/                       — интеграционные тесты репозиториев
-├── service/                          — unit-тесты сервисов
-└── controller/                       — интеграционные тесты контроллеров (MockMvc)
+├── repository/                           — интеграционные тесты репозиториев (6 файлов)
+├── service/                              — unit-тесты сервисов (5 файлов)
+└── controller/                           — интеграционные тесты контроллеров (4 файла)
 ```
+
+---
 
 ## Модель данных
 
 ```
-classifier_node                    unit_of_measure
-├── id (PK, BIGSERIAL)             ├── id (PK, BIGSERIAL)
-├── code (UNIQUE, VARCHAR)         ├── code (UNIQUE, VARCHAR)
-├── name (VARCHAR)                 └── name (VARCHAR)
-├── parent_id (FK → self)
-├── sort_order (INT)
-├── unit_of_measure_id (FK)
-├── created_at (TIMESTAMP)
-└── updated_at (TIMESTAMP)
+unit_of_measure              classifier_node
+├── id (PK)                  ├── id (PK)
+├── code (UNIQUE)            ├── code (UNIQUE)
+└── name                     ├── name
+                             ├── parent_id (FK → self)
+                             ├── sort_order
+                             ├── unit_of_measure_id (FK)
+                             ├── created_at
+                             └── updated_at
+
+enumeration_class            enumeration                  enumeration_value
+├── id (PK)                  ├── id (PK)                  ├── id (PK)
+├── code (UNIQUE)            ├── code (UNIQUE)            ├── code
+├── name                     ├── name                     ├── name
+├── description              ├── enumeration_class_id(FK) ├── enumeration_id (FK)
+├── created_at               ├── classifier_node_id (FK)  ├── sort_order
+└── updated_at               ├── created_at               ├── created_at
+                             └── updated_at               └── updated_at
+
+node_attribute_value
+├── id (PK)
+├── classifier_node_id (FK)
+├── enumeration_id (FK)
+├── enumeration_value_id (FK)
+├── created_at
+└── updated_at
+  UNIQUE (classifier_node_id, enumeration_id)
 ```
 
-Паттерн хранения дерева: **Adjacency List** (каждая вершина хранит ссылку на родителя).
-Обход дерева: PostgreSQL `WITH RECURSIVE` CTE.
+**Паттерн хранения дерева:** Adjacency List + PostgreSQL `WITH RECURSIVE` CTE.
+
+**Перечисления:** трёхуровневая схема — класс → перечисление → значение с порядком сортировки.
+
+**Выбор атрибута:** один узел может иметь ровно одно выбранное значение для каждого перечисления.
+
+---
+
+## Начальные данные (`data.sql`)
+
+| Тип | Количество | Примеры |
+|-----|-----------|---------|
+| Узлы классификатора | 29 | Электроника → Смартфоны → Apple → iPhone 16 |
+| Единицы измерения | 4 | PCS, KG, M, PACK |
+| Классы перечислений | 4 | COLOR, STORAGE, CONNECTOR, OS |
+| Перечисления | 6 | Цвета телефонов, Память смартфонов, Разъёмы кабелей… |
+| Значения перечислений | 24 | Чёрный, Белый, 128 ГБ, USB-C, iOS… |
