@@ -1,7 +1,6 @@
 package com.classifier.service
 
-import com.classifier.dto.NodeAttributeValueResponse
-import com.classifier.dto.SelectEnumerationValueRequest
+import com.classifier.dto.*
 import com.classifier.entity.NodeAttributeValue
 import com.classifier.exception.EntityNotFoundException
 import com.classifier.exception.InvalidSelectionException
@@ -88,6 +87,71 @@ class NodeAttributeValueService(
             )
         }
         navRepo.deleteByClassifierNodeIdAndEnumerationId(nodeId, enumerationId)
+    }
+
+    // ─── Фильтрация по значению перечисления ─────────────────────────────────
+
+    /**
+     * Найти все узлы в поддереве classNodeId, у которых выбрано
+     * указанное значение перечисления.
+     */
+    @Transactional(readOnly = true)
+    fun filterByEnumerationValue(
+        classNodeId: Long,
+        enumerationId: Long,
+        valueId: Long
+    ): List<NodeAttributeValueResponse> {
+        if (!nodeRepo.existsById(classNodeId)) {
+            throw EntityNotFoundException("Узел id=$classNodeId не найден")
+        }
+        if (!enumRepo.existsById(enumerationId)) {
+            throw EntityNotFoundException("Перечисление id=$enumerationId не найдено")
+        }
+        val descendants = nodeRepo.findDescendants(classNodeId)
+        if (descendants.isEmpty()) return emptyList()
+        val ids = descendants.map { it.id }
+        return navRepo.findByNodeIdsAndEnumerationIdAndValueId(ids, enumerationId, valueId)
+            .map(::toResponse)
+    }
+
+    // ─── Агрегаты по перечислению ─────────────────────────────────────────────
+
+    /**
+     * Посчитать количество узлов в поддереве classNodeId
+     * для каждого значения указанного перечисления.
+     */
+    @Transactional(readOnly = true)
+    fun getEnumerationAggregates(classNodeId: Long, enumerationId: Long): EnumerationAggregatesResponse {
+        if (!nodeRepo.existsById(classNodeId)) {
+            throw EntityNotFoundException("Узел id=$classNodeId не найден")
+        }
+        val enum = enumRepo.findById(enumerationId).orElseThrow {
+            EntityNotFoundException("Перечисление id=$enumerationId не найдено")
+        }
+        val descendants = nodeRepo.findDescendants(classNodeId)
+        val allValues = if (descendants.isEmpty()) emptyList()
+        else navRepo.findByNodeIdsAndEnumerationId(descendants.map { it.id }, enumerationId)
+
+        val countByValue = allValues.groupingBy { it.selectedValue }.eachCount()
+        val distribution = countByValue.entries
+            .sortedByDescending { it.value }
+            .map { (value, count) ->
+                EnumerationValueCountResponse(
+                    valueId = value.id,
+                    valueCode = value.code,
+                    valueName = value.name,
+                    count = count.toLong()
+                )
+            }
+
+        return EnumerationAggregatesResponse(
+            enumerationId = enum.id,
+            enumerationCode = enum.code,
+            enumerationName = enum.name,
+            rootNodeId = classNodeId,
+            totalCount = allValues.size.toLong(),
+            distribution = distribution
+        )
     }
 
     fun toResponse(nav: NodeAttributeValue) = NodeAttributeValueResponse(

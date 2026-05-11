@@ -445,3 +445,369 @@ LANGUAGE sql AS $$
     WHERE nav.classifier_node_id = p_node_id
     ORDER BY e.id;
 $$;
+
+-- =============================================================================
+-- 7. ЧИСЛОВЫЕ ПАРАМЕТРЫ ИЗДЕЛИЙ (задание 1.3)
+-- =============================================================================
+
+-- Создать числовой параметр
+CREATE OR REPLACE FUNCTION create_numeric_parameter(
+    p_code        VARCHAR(100),
+    p_name        VARCHAR(255),
+    p_description VARCHAR(1000) DEFAULT NULL,
+    p_min_value   NUMERIC(19,6) DEFAULT NULL,
+    p_max_value   NUMERIC(19,6) DEFAULT NULL,
+    p_uom_id      BIGINT        DEFAULT NULL
+)
+RETURNS BIGINT
+LANGUAGE plpgsql AS $$
+DECLARE
+    v_id BIGINT;
+BEGIN
+    IF EXISTS (SELECT 1 FROM numeric_parameter WHERE code = p_code) THEN
+        RAISE EXCEPTION 'Числовой параметр с кодом "%" уже существует', p_code;
+    END IF;
+    IF p_min_value IS NOT NULL AND p_max_value IS NOT NULL AND p_min_value > p_max_value THEN
+        RAISE EXCEPTION 'min_value (%) не может быть больше max_value (%)', p_min_value, p_max_value;
+    END IF;
+
+    INSERT INTO numeric_parameter (code, name, description, min_value, max_value, unit_of_measure_id, created_at, updated_at)
+    VALUES (p_code, p_name, p_description, p_min_value, p_max_value, p_uom_id, NOW(), NOW())
+    RETURNING id INTO v_id;
+    RETURN v_id;
+END;
+$$;
+
+-- Назначить числовой параметр на узел классификатора
+CREATE OR REPLACE PROCEDURE assign_numeric_parameter(
+    p_node_id  BIGINT,
+    p_param_id BIGINT
+)
+LANGUAGE plpgsql AS $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM classifier_node WHERE id = p_node_id) THEN
+        RAISE EXCEPTION 'Узел id=% не найден', p_node_id;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM numeric_parameter WHERE id = p_param_id) THEN
+        RAISE EXCEPTION 'Числовой параметр id=% не найден', p_param_id;
+    END IF;
+    IF EXISTS (SELECT 1 FROM node_numeric_parameter WHERE classifier_node_id = p_node_id AND numeric_parameter_id = p_param_id) THEN
+        RAISE EXCEPTION 'Параметр id=% уже назначен на узел id=%', p_param_id, p_node_id;
+    END IF;
+    INSERT INTO node_numeric_parameter (classifier_node_id, numeric_parameter_id, created_at)
+    VALUES (p_node_id, p_param_id, NOW());
+END;
+$$;
+
+-- Установить (upsert) числовое значение параметра для узла (изделия).
+-- Проверяет допустимый диапазон.
+CREATE OR REPLACE PROCEDURE set_numeric_value(
+    p_node_id  BIGINT,
+    p_param_id BIGINT,
+    p_value    NUMERIC(19,6)
+)
+LANGUAGE plpgsql AS $$
+DECLARE
+    v_min NUMERIC(19,6);
+    v_max NUMERIC(19,6);
+BEGIN
+    SELECT min_value, max_value INTO v_min, v_max
+    FROM numeric_parameter WHERE id = p_param_id;
+
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Числовой параметр id=% не найден', p_param_id;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM classifier_node WHERE id = p_node_id) THEN
+        RAISE EXCEPTION 'Узел id=% не найден', p_node_id;
+    END IF;
+    IF v_min IS NOT NULL AND p_value < v_min THEN
+        RAISE EXCEPTION 'Значение % меньше допустимого минимума %', p_value, v_min;
+    END IF;
+    IF v_max IS NOT NULL AND p_value > v_max THEN
+        RAISE EXCEPTION 'Значение % больше допустимого максимума %', p_value, v_max;
+    END IF;
+
+    INSERT INTO node_numeric_value (classifier_node_id, numeric_parameter_id, value, created_at, updated_at)
+    VALUES (p_node_id, p_param_id, p_value, NOW(), NOW())
+    ON CONFLICT ON CONSTRAINT uq_node_numeric_value
+    DO UPDATE SET value = EXCLUDED.value, updated_at = NOW();
+END;
+$$;
+
+-- Получить эффективные (собственные + унаследованные) числовые параметры узла
+CREATE OR REPLACE FUNCTION get_effective_numeric_parameters(p_node_id BIGINT)
+RETURNS TABLE (
+    parameter_id       BIGINT,
+    parameter_code     VARCHAR,
+    parameter_name     VARCHAR,
+    description        VARCHAR,
+    min_value          NUMERIC(19,6),
+    max_value          NUMERIC(19,6),
+    unit_of_measure    VARCHAR,
+    defined_at_node_id BIGINT,
+    defined_at_node    VARCHAR,
+    is_inherited       BOOLEAN
+)
+LANGUAGE sql AS $$
+    WITH RECURSIVE ancestors AS (
+        SELECT id, name, parent_id, 0 AS depth
+        FROM classifier_node WHERE id = p_node_id
+        UNION ALL
+        SELECT cn.id, cn.name, cn.parent_id, a.depth + 1
+        FROM classifier_node cn
+        JOIN ancestors a ON cn.id = a.parent_id
+    ),
+    -- Собираем все назначения по предкам; ближайший предок имеет меньший depth
+    ranked AS (
+        SELECT
+            np.id          AS param_id,
+            np.code        AS param_code,
+            np.name        AS param_name,
+            np.description,
+            np.min_value,
+            np.max_value,
+            uom.name       AS unit_of_measure,
+            a.id           AS node_id,
+            a.name         AS node_name,
+            a.depth,
+            ROW_NUMBER() OVER (PARTITION BY np.id ORDER BY a.depth ASC) AS rn
+        FROM ancestors a
+        JOIN node_numeric_parameter nnp ON nnp.classifier_node_id = a.id
+        JOIN numeric_parameter np       ON np.id = nnp.numeric_parameter_id
+        LEFT JOIN unit_of_measure uom   ON uom.id = np.unit_of_measure_id
+    )
+    SELECT
+        param_id,
+        param_code,
+        param_name,
+        description,
+        min_value,
+        max_value,
+        unit_of_measure,
+        node_id,
+        node_name,
+        (depth > 0) AS is_inherited
+    FROM ranked WHERE rn = 1
+    ORDER BY param_name;
+$$;
+
+-- Агрегаты числового параметра по поддереву
+CREATE OR REPLACE FUNCTION get_numeric_aggregates(p_root_id BIGINT, p_param_id BIGINT)
+RETURNS TABLE (
+    parameter_code VARCHAR,
+    parameter_name VARCHAR,
+    cnt            BIGINT,
+    min_val        NUMERIC(19,6),
+    max_val        NUMERIC(19,6),
+    avg_val        NUMERIC(19,6)
+)
+LANGUAGE sql AS $$
+    WITH RECURSIVE descendants AS (
+        SELECT id FROM classifier_node WHERE id = p_root_id
+        UNION ALL
+        SELECT cn.id FROM classifier_node cn
+        JOIN descendants d ON cn.parent_id = d.id
+    )
+    SELECT
+        np.code,
+        np.name,
+        COUNT(nnv.value),
+        MIN(nnv.value),
+        MAX(nnv.value),
+        ROUND(AVG(nnv.value), 6)
+    FROM node_numeric_value nnv
+    JOIN numeric_parameter np ON np.id = nnv.numeric_parameter_id
+    WHERE nnv.classifier_node_id IN (SELECT id FROM descendants)
+      AND nnv.numeric_parameter_id = p_param_id
+    GROUP BY np.code, np.name;
+$$;
+
+-- =============================================================================
+-- 8. ПЕРЕЧИСЛИМЫЕ ПАРАМЕТРЫ — НАСЛЕДОВАНИЕ, ФИЛЬТРАЦИЯ, АГРЕГАТЫ (задание 1.3)
+-- =============================================================================
+
+-- Получить эффективные (собственные + унаследованные) перечисления для узла
+CREATE OR REPLACE FUNCTION get_effective_enumerations(p_node_id BIGINT)
+RETURNS TABLE (
+    enumeration_id        BIGINT,
+    enumeration_code      VARCHAR,
+    enumeration_name      VARCHAR,
+    enumeration_class     VARCHAR,
+    defined_at_node_id    BIGINT,
+    defined_at_node_name  VARCHAR,
+    is_inherited          BOOLEAN
+)
+LANGUAGE sql AS $$
+    WITH RECURSIVE ancestors AS (
+        SELECT id, name, parent_id, 0 AS depth
+        FROM classifier_node WHERE id = p_node_id
+        UNION ALL
+        SELECT cn.id, cn.name, cn.parent_id, a.depth + 1
+        FROM classifier_node cn
+        JOIN ancestors a ON cn.id = a.parent_id
+    ),
+    ranked AS (
+        SELECT
+            e.id   AS enum_id,
+            e.code AS enum_code,
+            e.name AS enum_name,
+            ec.name AS class_name,
+            a.id   AS node_id,
+            a.name AS node_name,
+            a.depth,
+            ROW_NUMBER() OVER (PARTITION BY e.id ORDER BY a.depth ASC) AS rn
+        FROM ancestors a
+        JOIN enumeration e ON e.classifier_node_id = a.id
+        JOIN enumeration_class ec ON ec.id = e.enumeration_class_id
+    )
+    SELECT enum_id, enum_code, enum_name, class_name, node_id, node_name, (depth > 0)
+    FROM ranked WHERE rn = 1
+    ORDER BY enum_name;
+$$;
+
+-- Отбор изделий в поддереве по значению перечислимого параметра
+CREATE OR REPLACE FUNCTION filter_nodes_by_enum(
+    p_root_id        BIGINT,
+    p_enumeration_id BIGINT,
+    p_value_id       BIGINT
+)
+RETURNS TABLE (
+    node_id    BIGINT,
+    node_code  VARCHAR,
+    node_name  VARCHAR,
+    value_code VARCHAR,
+    value_name VARCHAR
+)
+LANGUAGE sql AS $$
+    WITH RECURSIVE descendants AS (
+        SELECT id FROM classifier_node WHERE id = p_root_id
+        UNION ALL
+        SELECT cn.id FROM classifier_node cn
+        JOIN descendants d ON cn.parent_id = d.id
+    )
+    SELECT
+        cn.id,
+        cn.code,
+        cn.name,
+        ev.code,
+        ev.name
+    FROM node_attribute_value nav
+    JOIN classifier_node  cn ON cn.id  = nav.classifier_node_id
+    JOIN enumeration_value ev ON ev.id  = nav.enumeration_value_id
+    WHERE nav.classifier_node_id IN (SELECT id FROM descendants)
+      AND nav.enumeration_id = p_enumeration_id
+      AND nav.enumeration_value_id = p_value_id
+    ORDER BY cn.name;
+$$;
+
+-- Агрегаты по перечислимому параметру в поддереве (распределение по значениям)
+CREATE OR REPLACE FUNCTION get_enum_aggregates(p_root_id BIGINT, p_enumeration_id BIGINT)
+RETURNS TABLE (
+    value_id   BIGINT,
+    value_code VARCHAR,
+    value_name VARCHAR,
+    cnt        BIGINT
+)
+LANGUAGE sql AS $$
+    WITH RECURSIVE descendants AS (
+        SELECT id FROM classifier_node WHERE id = p_root_id
+        UNION ALL
+        SELECT cn.id FROM classifier_node cn
+        JOIN descendants d ON cn.parent_id = d.id
+    )
+    SELECT
+        ev.id,
+        ev.code,
+        ev.name,
+        COUNT(*) AS cnt
+    FROM node_attribute_value nav
+    JOIN enumeration_value ev ON ev.id = nav.enumeration_value_id
+    WHERE nav.classifier_node_id IN (SELECT id FROM descendants)
+      AND nav.enumeration_id = p_enumeration_id
+    GROUP BY ev.id, ev.code, ev.name
+    ORDER BY cnt DESC;
+$$;
+
+-- Поиск изделий по коду или названию с возвратом значений всех параметров
+CREATE OR REPLACE FUNCTION search_items_with_parameters(p_query VARCHAR)
+RETURNS TABLE (
+    node_id         BIGINT,
+    node_code       VARCHAR,
+    node_name       VARCHAR,
+    parent_name     VARCHAR,
+    param_type      VARCHAR,   -- 'enum' или 'numeric'
+    param_name      VARCHAR,
+    value_text      VARCHAR
+)
+LANGUAGE sql AS $$
+    -- Перечислимые параметры
+    SELECT
+        cn.id,
+        cn.code,
+        cn.name,
+        p.name,
+        'enum'::VARCHAR,
+        e.name,
+        ev.name
+    FROM classifier_node cn
+    LEFT JOIN classifier_node p ON p.id = cn.parent_id
+    JOIN node_attribute_value nav ON nav.classifier_node_id = cn.id
+    JOIN enumeration e            ON e.id  = nav.enumeration_id
+    JOIN enumeration_value ev     ON ev.id = nav.enumeration_value_id
+    WHERE LOWER(cn.code) LIKE LOWER(CONCAT('%', p_query, '%'))
+       OR LOWER(cn.name) LIKE LOWER(CONCAT('%', p_query, '%'))
+
+    UNION ALL
+
+    -- Числовые параметры
+    SELECT
+        cn.id,
+        cn.code,
+        cn.name,
+        p.name,
+        'numeric'::VARCHAR,
+        np.name,
+        CAST(nnv.value AS VARCHAR)
+    FROM classifier_node cn
+    LEFT JOIN classifier_node p  ON p.id  = cn.parent_id
+    JOIN node_numeric_value nnv  ON nnv.classifier_node_id = cn.id
+    JOIN numeric_parameter np    ON np.id = nnv.numeric_parameter_id
+    WHERE LOWER(cn.code) LIKE LOWER(CONCAT('%', p_query, '%'))
+       OR LOWER(cn.name) LIKE LOWER(CONCAT('%', p_query, '%'))
+
+    ORDER BY node_name, param_type, param_name;
+$$;
+
+-- Отбор узлов поддерева по диапазону числового параметра
+CREATE OR REPLACE FUNCTION filter_nodes_by_numeric(
+    p_root_id  BIGINT,
+    p_param_id BIGINT,
+    p_min      NUMERIC(19,6) DEFAULT NULL,
+    p_max      NUMERIC(19,6) DEFAULT NULL
+)
+RETURNS TABLE (
+    node_id   BIGINT,
+    node_code VARCHAR,
+    node_name VARCHAR,
+    value     NUMERIC(19,6)
+)
+LANGUAGE sql AS $$
+    WITH RECURSIVE descendants AS (
+        SELECT id FROM classifier_node WHERE id = p_root_id
+        UNION ALL
+        SELECT cn.id FROM classifier_node cn
+        JOIN descendants d ON cn.parent_id = d.id
+    )
+    SELECT
+        cn.id,
+        cn.code,
+        cn.name,
+        nnv.value
+    FROM node_numeric_value nnv
+    JOIN classifier_node cn ON cn.id = nnv.classifier_node_id
+    WHERE nnv.classifier_node_id IN (SELECT id FROM descendants)
+      AND nnv.numeric_parameter_id = p_param_id
+      AND (p_min IS NULL OR nnv.value >= p_min)
+      AND (p_max IS NULL OR nnv.value <= p_max)
+    ORDER BY nnv.value;
+$$;

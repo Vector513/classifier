@@ -15,6 +15,8 @@ import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.time.Instant
 
+
+
 @Service
 @Transactional
 class EnumerationService(
@@ -221,6 +223,46 @@ class EnumerationService(
         value.sortOrder = targetOrder
         value.updatedAt = Instant.now()
         valueRepo.saveAll(siblings)
+    }
+
+    // ── Наследование перечислений ─────────────────────────────────────────────
+
+    /**
+     * Возвращает все перечисления, действующие для узла — как привязанные непосредственно
+     * к нему, так и унаследованные от предков.
+     * При совпадении перечисления (по id) у потомка приоритет над предком.
+     */
+    @Transactional(readOnly = true)
+    fun getEffectiveEnumerations(nodeId: Long): List<EffectiveEnumerationResponse> {
+        nodeRepo.findById(nodeId).orElseThrow {
+            EntityNotFoundException("Узел id=$nodeId не найден")
+        }
+        val ancestors = nodeRepo.findAncestors(nodeId)
+        // Порядок от корня к текущему узлу — потомок перекрывает предка
+        val orderedIds = (ancestors.map { it.id }.reversed()) + nodeId
+
+        val allEnums = enumRepo.findByClassifierNodeIdIn(orderedIds)
+
+        // Для каждого перечисления берём определение с минимальной глубиной (ближайшее к узлу)
+        val effectiveMap = linkedMapOf<Long, Enumeration>()
+        for (id in orderedIds) {
+            allEnums.filter { it.classifierNode?.id == id }
+                .forEach { effectiveMap[it.id] = it }
+        }
+
+        return effectiveMap.values.map { enum ->
+            val defNode = enum.classifierNode!!
+            EffectiveEnumerationResponse(
+                enumerationId = enum.id,
+                enumerationCode = enum.code,
+                enumerationName = enum.name,
+                enumerationClassName = enum.enumerationClass.name,
+                values = valueRepo.findByEnumerationIdOrderBySortOrder(enum.id).map(::toValueResponse),
+                definedAtNodeId = defNode.id,
+                definedAtNodeName = defNode.name,
+                isInherited = defNode.id != nodeId
+            )
+        }
     }
 
     // ── Mappers ───────────────────────────────────────────────────────────────

@@ -9,3 +9,5 @@ class HasChildrenException(message: String) : RuntimeException(message)
 class CyclicMoveException(message: String) : RuntimeException(message)
 
 class InvalidSelectionException(message: String) : RuntimeException(message)
+
+class ValueOutOfRangeException(message: String) : RuntimeException(message)

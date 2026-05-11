@@ -6,6 +6,7 @@ import com.classifier.exception.DuplicateCodeException
 import com.classifier.exception.EntityNotFoundException
 import com.classifier.exception.HasChildrenException
 import com.classifier.exception.InvalidSelectionException
+import com.classifier.exception.ValueOutOfRangeException
 import org.springframework.http.HttpStatus
 import org.springframework.web.bind.MethodArgumentNotValidException
 import org.springframework.web.bind.annotation.ExceptionHandler
@@ -58,6 +59,15 @@ class GlobalExceptionHandler {
         status = 422,
         error = "Unprocessable Entity",
         message = ex.message ?: "Некорректный выбор значения",
+        timestamp = Instant.now()
+    )
+
+    @ExceptionHandler(ValueOutOfRangeException::class)
+    @ResponseStatus(HttpStatus.UNPROCESSABLE_ENTITY)
+    fun handleValueOutOfRange(ex: ValueOutOfRangeException) = ErrorResponse(
+        status = 422,
+        error = "Unprocessable Entity",
+        message = ex.message ?: "Значение выходит за допустимый диапазон",
         timestamp = Instant.now()
     )
 
