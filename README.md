@@ -1,7 +1,7 @@
-# Классификатор изделий — Интернет-магазин электроники
+# Классификатор изделий
 
-REST API сервис для работы с древовидным справочником категорий товаров и моделирования перечислений атрибутов.
-Реализует полный CRUD, обход дерева, диагностику циклов, поиск, управление перечислениями и выбор значений атрибутов для узлов.
+REST API сервис для работы с иерархическим справочником изделий с полной поддержкой числовых параметров и параметров-перечислений.
+Реализует CRUD, обход дерева, наследование параметров по иерархии, фильтрацию изделий, агрегирование статистики и поиск.
 
 ## Требования
 
@@ -27,7 +27,7 @@ PostgreSQL будет доступен на `localhost:5434` (БД: `classifier`
 ### 3. Открыть Swagger UI
 
 ```
-http://localhost:8080/swagger-ui.html
+http://localhost:8082/swagger-ui.html
 ```
 
 ### Запуск целиком в Docker (БД + приложение)
@@ -60,21 +60,21 @@ docker-compose down -v
 
 ## API-эндпоинты
 
-### Классификатор (`/api/v1/nodes`)
+### Узлы классификатора (`/api/v1/nodes`)
 
 | Метод | Путь | Описание |
 |-------|------|----------|
-| `GET` | `/roots` | Корневые вершины |
-| `GET` | `/{id}` | Вершина по ID |
+| `GET` | `/roots` | Корневые узлы |
+| `GET` | `/{id}` | Узел по ID |
 | `GET` | `/{id}/children` | Прямые потомки |
-| `POST` | `/` | Создать вершину |
-| `PATCH` | `/{id}` | Обновить вершину |
-| `DELETE` | `/{id}` | Удалить вершину (без потомков) |
+| `POST` | `/` | Создать узел |
+| `PATCH` | `/{id}` | Обновить узел |
+| `DELETE` | `/{id}` | Удалить узел |
 | `PATCH` | `/{id}/move` | Переместить (сменить родителя) |
 | `PATCH` | `/{id}/reorder` | Изменить порядок сортировки |
 | `GET` | `/{id}/descendants` | Все потомки (рекурсивно) |
 | `GET` | `/{id}/ancestors` | Все предки (до корня) |
-| `GET` | `/{id}/terminals` | Терминальные вершины поддерева |
+| `GET` | `/{id}/terminals` | Терминальные узлы поддерева |
 | `GET` | `/tree` | Полное дерево |
 | `GET` | `/search?query=...` | Поиск по коду/названию |
 | `POST` | `/validate-cycles` | Диагностика циклов |
@@ -89,17 +89,6 @@ docker-compose down -v
 | `PUT` | `/{id}` | Обновить |
 | `DELETE` | `/{id}` | Удалить |
 
-### Классы перечислений (`/api/v1/enumeration-classes`)
-
-| Метод | Путь | Описание |
-|-------|------|----------|
-| `GET` | `/` | Все классы перечислений |
-| `GET` | `/{id}` | Класс по ID |
-| `POST` | `/` | Создать класс |
-| `PATCH` | `/{id}` | Обновить класс |
-| `DELETE` | `/{id}` | Удалить класс (без перечислений) |
-| `GET` | `/{id}/enumerations` | Все перечисления класса |
-
 ### Перечисления (`/api/v1/enumerations`)
 
 | Метод | Путь | Описание |
@@ -107,21 +96,56 @@ docker-compose down -v
 | `GET` | `/{id}` | Перечисление со значениями |
 | `POST` | `/` | Создать перечисление |
 | `PATCH` | `/{id}` | Обновить перечисление |
-| `DELETE` | `/{id}` | Удалить перечисление (без значений) |
+| `DELETE` | `/{id}` | Удалить перечисление |
 | `GET` | `/{id}/values` | Список значений (по порядку) |
 | `POST` | `/{id}/values` | Добавить значение |
 | `PATCH` | `/{id}/values/{valueId}` | Редактировать значение |
 | `DELETE` | `/{id}/values/{valueId}` | Удалить значение |
 | `PATCH` | `/{id}/values/{valueId}/reorder` | Изменить порядок значения |
 
-### Атрибуты узлов (`/api/v1/nodes/{nodeId}/attributes`)
+### Атрибуты узлов — перечислимые (`/api/v1/nodes/{nodeId}/attributes`)
 
 | Метод | Путь | Описание |
 |-------|------|----------|
 | `GET` | `/` | Все выбранные значения для узла |
 | `GET` | `/{enumerationId}` | Выбранное значение конкретного перечисления |
-| `PUT` | `/` | Выбрать значение перечисления (создаёт или заменяет) |
+| `PUT` | `/` | Выбрать значение перечисления |
 | `DELETE` | `/{enumerationId}` | Снять выбор значения |
+
+### Числовые параметры (`/api/v1/numeric-parameters`)
+
+| Метод | Путь | Описание |
+|-------|------|----------|
+| `GET` | `/` | Список всех числовых параметров |
+| `POST` | `/` | Создать числовой параметр |
+| `GET` | `/{id}` | Получить по ID |
+| `PATCH` | `/{id}` | Обновить параметр |
+| `DELETE` | `/{id}` | Удалить параметр |
+
+### Числовые значения узлов (`/api/v1/nodes/{nodeId}/numeric`)
+
+| Метод | Путь | Описание |
+|-------|------|----------|
+| `GET` | `/parameters` | Собственные числовые параметры узла |
+| `GET` | `/parameters/effective` | Все параметры с учётом наследования |
+| `POST` | `/parameters/{paramId}` | Назначить параметр узлу |
+| `DELETE` | `/parameters/{paramId}` | Снять параметр с узла |
+| `GET` | `/values` | Все числовые значения изделия |
+| `GET` | `/values/{paramId}` | Значение конкретного параметра |
+| `PUT` | `/values/{paramId}` | Установить/обновить значение |
+| `DELETE` | `/values/{paramId}` | Удалить значение |
+| `GET` | `/aggregates/{paramId}` | Агрегаты (min/max/avg/count) по поддереву |
+| `GET` | `/filter/{paramId}?minVal=&maxVal=` | Фильтрация по диапазону значений |
+
+### Поиск и анализ изделий
+
+| Метод | Путь | Описание |
+|-------|------|----------|
+| `GET` | `/api/v1/items/search?query=...` | Поиск изделий по коду или названию |
+| `GET` | `/api/v1/items/{nodeId}/parameters` | Узел с полным набором значений параметров |
+| `GET` | `/api/v1/nodes/{nodeId}/enumerations/effective` | Перечисления узла с учётом наследования |
+| `GET` | `/api/v1/nodes/{classNodeId}/filter/enum?enumerationId=&valueId=` | Фильтрация по значению перечисления |
+| `GET` | `/api/v1/nodes/{classNodeId}/aggregates/enum/{enumerationId}` | Статистика по перечислимому параметру |
 
 ---
 
@@ -133,6 +157,7 @@ docker-compose down -v
 | Фреймворк | Spring Boot 3 |
 | БД | PostgreSQL 15 |
 | ORM | Spring Data JPA (Hibernate) |
+| SQL | Нативные запросы + рекурсивные CTE + хранимые процедуры |
 | API-документация | springdoc-openapi (Swagger UI) |
 | Сборка | Gradle (Kotlin DSL) + Version Catalog (TOML) |
 | Тесты | JUnit 5 + Testcontainers + Mockito + MockMvc |
@@ -145,13 +170,13 @@ docker-compose down -v
 Layered Architecture — 4 слоя:
 
 ```
-Controller  →  принимает HTTP-запросы, Swagger-аннотации   (Java)
+Controller  →  принимает HTTP-запросы, Swagger-аннотации              (Java)
     ↓
-Service     →  бизнес-логика (CRUD, обход дерева, валидация) (Kotlin)
+Service     →  бизнес-логика (CRUD, наследование, агрегаты, валидация) (Kotlin)
     ↓
-Repository  →  доступ к БД (Spring Data JPA + CTE-запросы)  (Kotlin)
+Repository  →  доступ к БД (Spring Data JPA + CTE-запросы)            (Kotlin)
     ↓
-Entity      →  JPA-сущности (маппинг на таблицы PostgreSQL)  (Kotlin)
+Entity      →  JPA-сущности (маппинг на таблицы PostgreSQL)            (Kotlin)
 ```
 
 ---
@@ -162,55 +187,65 @@ Entity      →  JPA-сущности (маппинг на таблицы Postgr
 src/main/kotlin/com/classifier/
 ├── ClassifierApplication.kt              — точка входа + OpenAPI-бин
 ├── entity/
-│   ├── ClassifierNode.kt                 — вершина классификатора
+│   ├── ClassifierNode.kt                 — узел классификатора
 │   ├── UnitOfMeasure.kt                  — единица измерения
-│   ├── EnumerationClass.kt               — класс перечислений (Цвет, Размер…)
-│   ├── Enumeration.kt                    — перечисление (Цвета телефонов)
-│   ├── EnumerationValue.kt               — значение перечисления (Чёрный, Белый…)
-│   └── NodeAttributeValue.kt             — выбранное значение для узла классификатора
+│   ├── Enumeration.kt                    — параметр-перечисление
+│   ├── EnumerationValue.kt               — значение перечисления
+│   ├── NodeAttributeValue.kt             — выбранное значение перечисления у изделия
+│   ├── NumericParameter.kt               — числовой параметр (с min/max диапазоном)
+│   ├── NodeNumericParameter.kt           — связь узла с числовым параметром
+│   └── NodeNumericValue.kt               — числовое значение параметра у изделия
 ├── dto/
 │   ├── NodeRequests.kt                   — CreateNodeRequest, UpdateNodeRequest…
 │   ├── NodeResponses.kt                  — NodeResponse, TreeNodeResponse
 │   ├── UnitOfMeasureDtos.kt              — UnitOfMeasureRequest/Response
 │   ├── EnumerationDtos.kt                — все DTO для перечислений
 │   ├── NodeAttributeValueDtos.kt         — SelectEnumerationValueRequest/Response
+│   ├── NumericParameterDtos.kt           — DTO числовых параметров и значений
+│   ├── ItemDtos.kt                       — NodeWithParametersResponse, агрегаты
 │   └── CommonDtos.kt                     — ErrorResponse, ValidationResponse
 ├── repository/
 │   ├── ClassifierNodeRepository.kt       — CTE-запросы для обхода дерева
 │   ├── UnitOfMeasureRepository.kt
-│   ├── EnumerationClassRepository.kt
 │   ├── EnumerationRepository.kt
 │   ├── EnumerationValueRepository.kt
-│   └── NodeAttributeValueRepository.kt
+│   ├── NodeAttributeValueRepository.kt
+│   ├── NumericParameterRepository.kt
+│   ├── NodeNumericParameterRepository.kt
+│   └── NodeNumericValueRepository.kt     — агрегаты через нативный CTE-запрос
 ├── service/
 │   ├── ClassifierNodeService.kt          — CRUD, перемещение, переупорядочивание
 │   ├── TreeTraversalService.kt           — потомки, предки, терминальные, циклы
 │   ├── UnitOfMeasureService.kt
-│   ├── EnumerationService.kt             — управление перечислениями и значениями
-│   └── NodeAttributeValueService.kt      — выбор значения перечисления для узла
+│   ├── EnumerationService.kt             — перечисления, значения, наследование
+│   ├── NodeAttributeValueService.kt      — выбор значения, фильтрация, агрегаты
+│   ├── NumericParameterService.kt        — CRUD, назначение, наследование, агрегаты
+│   └── ItemSearchService.kt              — поиск изделий с батч-загрузкой параметров
 ├── controller/
 │   └── GlobalExceptionHandler.kt         — обработка ошибок (404, 409, 400, 422)
 ├── mapper/
 │   └── NodeMapper.kt                     — Entity → DTO
 └── exception/
-    └── Exceptions.kt                     — все исключения приложения
+    └── Exceptions.kt                     — все исключения (включая ValueOutOfRangeException)
 
 src/main/java/com/classifier/controller/
 ├── ClassifierNodeController.java         — 14 REST-эндпоинтов
 ├── UnitOfMeasureController.java          — 5 REST-эндпоинтов
-├── EnumerationClassController.java       — 6 REST-эндпоинтов
 ├── EnumerationController.java            — 9 REST-эндпоинтов
-└── NodeAttributeValueController.java     — 4 REST-эндпоинта
+├── NodeAttributeValueController.java     — 4 REST-эндпоинта
+├── NumericParameterController.java       — 5 REST-эндпоинтов (CRUD параметров)
+├── NodeNumericController.java            — 10 REST-эндпоинтов (значения, наследование, агрегаты)
+└── ItemQueryController.java              — 5 REST-эндпоинтов (поиск, фильтрация)
 
 src/main/resources/
-├── application.yml                       — конфигурация (БД, JPA, Swagger)
-├── data.sql                              — начальные данные (29 узлов, 4 класса, 6 перечислений, 24 значения)
-└── procedures.sql                        — хранимые SQL-процедуры для работы с перечислениями
+├── application.yml                       — конфигурация (БД порт 5434, сервер порт 8082)
+├── data.sql                              — начальные данные (узлы, перечисления, числовые параметры и значения)
+└── procedures.sql                        — хранимые процедуры (наследование, агрегаты, фильтрация)
 
 src/test/kotlin/com/classifier/
-├── repository/                           — интеграционные тесты репозиториев (6 файлов)
-├── service/                              — unit-тесты сервисов (5 файлов)
-└── controller/                           — интеграционные тесты контроллеров (4 файла)
+├── repository/                           — интеграционные тесты репозиториев
+├── service/                              — unit-тесты сервисов
+└── controller/                           — интеграционные тесты контроллеров
 ```
 
 ---
@@ -228,30 +263,31 @@ unit_of_measure              classifier_node
                              ├── created_at
                              └── updated_at
 
-enumeration_class            enumeration                  enumeration_value
+enumeration                  enumeration_value            node_attribute_value
 ├── id (PK)                  ├── id (PK)                  ├── id (PK)
-├── code (UNIQUE)            ├── code (UNIQUE)            ├── code
-├── name                     ├── name                     ├── name
-├── description              ├── enumeration_class_id(FK) ├── enumeration_id (FK)
-├── created_at               ├── classifier_node_id (FK)  ├── sort_order
-└── updated_at               ├── created_at               ├── created_at
-                             └── updated_at               └── updated_at
+├── code (UNIQUE)            ├── code                     ├── classifier_node_id (FK)
+├── name                     ├── name                     ├── enumeration_id (FK)
+├── classifier_node_id (FK)  ├── enumeration_id (FK)      ├── enumeration_value_id (FK)
+├── created_at               ├── sort_order               └── UNIQUE(node, enum)
+└── updated_at               └── created_at
 
-node_attribute_value
-├── id (PK)
-├── classifier_node_id (FK)
-├── enumeration_id (FK)
-├── enumeration_value_id (FK)
-├── created_at
-└── updated_at
-  UNIQUE (classifier_node_id, enumeration_id)
+numeric_parameter             node_numeric_parameter       node_numeric_value
+├── id (PK)                  ├── classifier_node_id (FK)  ├── classifier_node_id (FK)
+├── code (UNIQUE)            ├── numeric_parameter_id(FK) ├── numeric_parameter_id(FK)
+├── name                     └── UNIQUE(node, param)      ├── value (NUMERIC 19,6)
+├── min_value (nullable)                                  └── UNIQUE(node, param)
+├── max_value (nullable)
+├── unit_of_measure_id (FK)
+└── created_at / updated_at
 ```
 
 **Паттерн хранения дерева:** Adjacency List + PostgreSQL `WITH RECURSIVE` CTE.
 
-**Перечисления:** трёхуровневая схема — класс → перечисление → значение с порядком сортировки.
+**Наследование параметров:** при запросе эффективных параметров узла рекурсивно обходятся все предки — параметры, назначенные родителю, автоматически наследуются потомками. Поле `isInherited` в ответе указывает источник.
 
-**Выбор атрибута:** один узел может иметь ровно одно выбранное значение для каждого перечисления.
+**Валидация диапазона:** при установке числового значения проверяется попадание в `[minValue, maxValue]`. Нарушение возвращает HTTP 422.
+
+**Агрегаты:** реализованы через нативные CTE-запросы к PostgreSQL — `min`, `max`, `avg`, `count` для числовых параметров и подсчёт по значениям для перечислений.
 
 ---
 
@@ -259,8 +295,29 @@ node_attribute_value
 
 | Тип | Количество | Примеры |
 |-----|-----------|---------|
-| Узлы классификатора | 29 | Электроника → Смартфоны → Apple → iPhone 16 |
-| Единицы измерения | 4 | PCS, KG, M, PACK |
-| Классы перечислений | 4 | COLOR, STORAGE, CONNECTOR, OS |
-| Перечисления | 6 | Цвета телефонов, Память смартфонов, Разъёмы кабелей… |
-| Значения перечислений | 24 | Чёрный, Белый, 128 ГБ, USB-C, iOS… |
+| Узлы классификатора | 29+ | Электроника → Смартфоны → Galaxy S24, iPhone 15 Pro… |
+| Единицы измерения | 5 | г, мАч, дюйм, ГБ, руб. |
+| Перечисления | 6+ | Цвет, Операционная система, Тип памяти… |
+| Значения перечислений | 24+ | Чёрный, Android, iOS, 128 ГБ… |
+| Числовые параметры | 5 | WEIGHT, BATTERY, SCREEN_SIZE, RAM, PRICE |
+| Назначения числовых параметров | 8 | ELECTRONICS→WEIGHT+PRICE, PHONES→BATTERY+SCREEN+RAM… |
+| Числовые значения изделий | 30 | 6 моделей × 5 параметров |
+
+### Примеры тестовых запросов через Swagger UI
+
+```
+# Все параметры смартфона Galaxy S24 с наследованием
+GET /api/v1/nodes/6/numeric/parameters/effective
+
+# Агрегаты по аккумулятору в классе "Смартфоны"
+GET /api/v1/nodes/4/numeric/aggregates/2
+
+# Смартфоны с RAM >= 8 ГБ
+GET /api/v1/nodes/4/numeric/filter/4?minVal=8
+
+# Распределение смартфонов по ОС
+GET /api/v1/nodes/4/aggregates/enum/2
+
+# Поиск изделий по названию
+GET /api/v1/items/search?query=Galaxy
+```
