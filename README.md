@@ -13,7 +13,7 @@ REST API сервис для работы с иерархическим спра
 ### 1. Поднять БД
 
 ```bash
-docker-compose up -d
+docker-compose up -d postgres
 ```
 
 PostgreSQL будет доступен на `localhost:5434` (БД: `classifier`, пользователь/пароль: `classifier`).
@@ -35,6 +35,9 @@ http://localhost:8082/swagger-ui.html
 ```bash
 docker-compose up --build
 ```
+
+> При запуске через Docker приложение доступно на порту **8080** (маппинг в `docker-compose.yml`).
+> Swagger UI: `http://localhost:8080/swagger-ui.html`
 
 ## Остановка
 
@@ -89,6 +92,17 @@ docker-compose down -v
 | `PUT` | `/{id}` | Обновить |
 | `DELETE` | `/{id}` | Удалить |
 
+### Классы перечислений (`/api/v1/enumeration-classes`)
+
+| Метод | Путь | Описание |
+|-------|------|----------|
+| `GET` | `/` | Все классы перечислений |
+| `GET` | `/{id}` | Класс по ID |
+| `POST` | `/` | Создать класс |
+| `PATCH` | `/{id}` | Обновить класс |
+| `DELETE` | `/{id}` | Удалить класс |
+| `GET` | `/{id}/enumerations` | Все перечисления класса |
+
 ### Перечисления (`/api/v1/enumerations`)
 
 | Метод | Путь | Описание |
@@ -132,7 +146,7 @@ docker-compose down -v
 | `DELETE` | `/parameters/{paramId}` | Снять параметр с узла |
 | `GET` | `/values` | Все числовые значения изделия |
 | `GET` | `/values/{paramId}` | Значение конкретного параметра |
-| `PUT` | `/values/{paramId}` | Установить/обновить значение |
+| `PUT` | `/values` | Установить/обновить значение (paramId в теле запроса) |
 | `DELETE` | `/values/{paramId}` | Удалить значение |
 | `GET` | `/aggregates/{paramId}` | Агрегаты (min/max/avg/count) по поддереву |
 | `GET` | `/filter/{paramId}?minVal=&maxVal=` | Фильтрация по диапазону значений |
@@ -189,6 +203,7 @@ src/main/kotlin/com/classifier/
 ├── entity/
 │   ├── ClassifierNode.kt                 — узел классификатора
 │   ├── UnitOfMeasure.kt                  — единица измерения
+│   ├── EnumerationClass.kt               — класс перечислений (Цвет, ОС…)
 │   ├── Enumeration.kt                    — параметр-перечисление
 │   ├── EnumerationValue.kt               — значение перечисления
 │   ├── NodeAttributeValue.kt             — выбранное значение перечисления у изделия
@@ -225,12 +240,14 @@ src/main/kotlin/com/classifier/
 │   └── GlobalExceptionHandler.kt         — обработка ошибок (404, 409, 400, 422)
 ├── mapper/
 │   └── NodeMapper.kt                     — Entity → DTO
+
 └── exception/
     └── Exceptions.kt                     — все исключения (включая ValueOutOfRangeException)
 
 src/main/java/com/classifier/controller/
 ├── ClassifierNodeController.java         — 14 REST-эндпоинтов
 ├── UnitOfMeasureController.java          — 5 REST-эндпоинтов
+├── EnumerationClassController.java       — 6 REST-эндпоинтов (/api/v1/enumeration-classes)
 ├── EnumerationController.java            — 9 REST-эндпоинтов
 ├── NodeAttributeValueController.java     — 4 REST-эндпоинта
 ├── NumericParameterController.java       — 5 REST-эндпоинтов (CRUD параметров)
@@ -263,22 +280,34 @@ unit_of_measure              classifier_node
                              ├── created_at
                              └── updated_at
 
-enumeration                  enumeration_value            node_attribute_value
+enumeration_class            enumeration                  enumeration_value
 ├── id (PK)                  ├── id (PK)                  ├── id (PK)
-├── code (UNIQUE)            ├── code                     ├── classifier_node_id (FK)
-├── name                     ├── name                     ├── enumeration_id (FK)
-├── classifier_node_id (FK)  ├── enumeration_id (FK)      ├── enumeration_value_id (FK)
-├── created_at               ├── sort_order               └── UNIQUE(node, enum)
-└── updated_at               └── created_at
+├── code (UNIQUE)            ├── code (UNIQUE)            ├── code
+├── name                     ├── name                     ├── name
+├── description              ├── enumeration_class_id(FK) ├── enumeration_id (FK)
+├── created_at               ├── classifier_node_id (FK)  ├── sort_order
+└── updated_at               ├── created_at               ├── created_at
+                             └── updated_at               └── updated_at
+
+node_attribute_value
+├── id (PK)
+├── classifier_node_id (FK)
+├── enumeration_id (FK)
+├── enumeration_value_id (FK)
+├── created_at
+├── updated_at
+└── UNIQUE(classifier_node_id, enumeration_id)
 
 numeric_parameter             node_numeric_parameter       node_numeric_value
-├── id (PK)                  ├── classifier_node_id (FK)  ├── classifier_node_id (FK)
-├── code (UNIQUE)            ├── numeric_parameter_id(FK) ├── numeric_parameter_id(FK)
-├── name                     └── UNIQUE(node, param)      ├── value (NUMERIC 19,6)
-├── min_value (nullable)                                  └── UNIQUE(node, param)
-├── max_value (nullable)
-├── unit_of_measure_id (FK)
-└── created_at / updated_at
+├── id (PK)                  ├── id (PK)                  ├── id (PK)
+├── code (UNIQUE)            ├── classifier_node_id (FK)  ├── classifier_node_id (FK)
+├── name                     ├── numeric_parameter_id(FK) ├── numeric_parameter_id(FK)
+├── description              └── UNIQUE(node, param)      ├── value (NUMERIC 19,6)
+├── min_value (nullable)                                  ├── created_at
+├── max_value (nullable)                                  ├── updated_at
+├── unit_of_measure_id (FK)                               └── UNIQUE(node, param)
+├── created_at
+└── updated_at
 ```
 
 **Паттерн хранения дерева:** Adjacency List + PostgreSQL `WITH RECURSIVE` CTE.
@@ -295,10 +324,11 @@ numeric_parameter             node_numeric_parameter       node_numeric_value
 
 | Тип | Количество | Примеры |
 |-----|-----------|---------|
-| Узлы классификатора | 29+ | Электроника → Смартфоны → Galaxy S24, iPhone 15 Pro… |
-| Единицы измерения | 5 | г, мАч, дюйм, ГБ, руб. |
-| Перечисления | 6+ | Цвет, Операционная система, Тип памяти… |
-| Значения перечислений | 24+ | Чёрный, Android, iOS, 128 ГБ… |
+| Узлы классификатора | 29 | Электроника → Смартфоны → Galaxy S24, iPhone 15 Pro… |
+| Единицы измерения | 4 | г, мАч, дюйм, ГБ |
+| Классы перечислений | 4 | COLOR, STORAGE, CONNECTOR, OS |
+| Перечисления | 6 | Цвет, Операционная система, Тип памяти… |
+| Значения перечислений | 24 | Чёрный, Android, iOS, 128 ГБ… |
 | Числовые параметры | 5 | WEIGHT, BATTERY, SCREEN_SIZE, RAM, PRICE |
 | Назначения числовых параметров | 8 | ELECTRONICS→WEIGHT+PRICE, PHONES→BATTERY+SCREEN+RAM… |
 | Числовые значения изделий | 30 | 6 моделей × 5 параметров |
