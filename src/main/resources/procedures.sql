@@ -775,7 +775,7 @@ LANGUAGE sql AS $$
     WHERE LOWER(cn.code) LIKE LOWER(CONCAT('%', p_query, '%'))
        OR LOWER(cn.name) LIKE LOWER(CONCAT('%', p_query, '%'))
 
-    ORDER BY node_name, param_type, param_name;
+    ORDER BY 3, 5, 6;
 $$;
 
 -- Отбор узлов поддерева по диапазону числового параметра
@@ -810,4 +810,411 @@ LANGUAGE sql AS $$
       AND (p_min IS NULL OR nnv.value >= p_min)
       AND (p_max IS NULL OR nnv.value <= p_max)
     ORDER BY nnv.value;
+$$;
+
+-- =============================================================================
+-- 9. ХОЗЯЙСТВЕННЫЕ ОПЕРАЦИИ (задание 1.4)
+-- =============================================================================
+
+-- -----------------------------------------------------------------------------
+-- 9.1 Классификатор ХО
+-- -----------------------------------------------------------------------------
+
+-- Создать узел классификатора ХО
+CREATE OR REPLACE FUNCTION create_ho_class(
+    p_code      VARCHAR(100),
+    p_name      VARCHAR(255),
+    p_parent_id BIGINT DEFAULT NULL,
+    p_descr     TEXT   DEFAULT NULL
+)
+RETURNS BIGINT
+LANGUAGE plpgsql AS $$
+DECLARE v_id BIGINT;
+BEGIN
+    IF EXISTS (SELECT 1 FROM ho_class WHERE code = p_code) THEN
+        RAISE EXCEPTION 'Класс ХО с кодом "%" уже существует', p_code;
+    END IF;
+    IF p_parent_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM ho_class WHERE id = p_parent_id) THEN
+        RAISE EXCEPTION 'Родительский класс ХО id=% не найден', p_parent_id;
+    END IF;
+    INSERT INTO ho_class(code, name, parent_id, description, created_at, updated_at)
+    VALUES (p_code, p_name, p_parent_id, p_descr, NOW(), NOW())
+    RETURNING id INTO v_id;
+    RETURN v_id;
+END;
+$$;
+
+-- Получить дерево классификатора ХО
+CREATE OR REPLACE FUNCTION get_ho_class_tree()
+RETURNS TABLE(
+    id          BIGINT,
+    code        VARCHAR,
+    name        VARCHAR,
+    parent_id   BIGINT,
+    parent_name VARCHAR,
+    depth       INT
+)
+LANGUAGE sql AS $$
+    WITH RECURSIVE tree AS (
+        SELECT id, code, name, parent_id, NULL::VARCHAR AS parent_name, 0 AS depth
+        FROM ho_class WHERE parent_id IS NULL
+        UNION ALL
+        SELECT c.id, c.code, c.name, c.parent_id, t.name, t.depth + 1
+        FROM ho_class c JOIN tree t ON c.parent_id = t.id
+    )
+    SELECT * FROM tree ORDER BY depth, name;
+$$;
+
+-- -----------------------------------------------------------------------------
+-- 9.2 Шаблоны ХО
+-- -----------------------------------------------------------------------------
+
+-- Создать шаблон ХО
+CREATE OR REPLACE FUNCTION create_ho_template(
+    p_ho_class_id BIGINT,
+    p_code        VARCHAR(100),
+    p_name        VARCHAR(255),
+    p_descr       TEXT DEFAULT NULL
+)
+RETURNS BIGINT
+LANGUAGE plpgsql AS $$
+DECLARE v_id BIGINT;
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM ho_class WHERE id = p_ho_class_id) THEN
+        RAISE EXCEPTION 'Класс ХО id=% не найден', p_ho_class_id;
+    END IF;
+    IF EXISTS (SELECT 1 FROM ho_template WHERE code = p_code) THEN
+        RAISE EXCEPTION 'Шаблон ХО с кодом "%" уже существует', p_code;
+    END IF;
+    INSERT INTO ho_template(ho_class_id, code, name, description, created_at, updated_at)
+    VALUES (p_ho_class_id, p_code, p_name, p_descr, NOW(), NOW())
+    RETURNING id INTO v_id;
+    RETURN v_id;
+END;
+$$;
+
+-- Добавить параметр к шаблону
+CREATE OR REPLACE PROCEDURE add_template_parameter(
+    p_template_id   BIGINT,
+    p_param_type_id BIGINT,
+    p_required      BOOLEAN DEFAULT FALSE
+)
+LANGUAGE plpgsql AS $$
+DECLARE v_order INT;
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM ho_template WHERE id = p_template_id) THEN
+        RAISE EXCEPTION 'Шаблон ХО id=% не найден', p_template_id;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM ho_parameter_type WHERE id = p_param_type_id) THEN
+        RAISE EXCEPTION 'Тип параметра id=% не найден', p_param_type_id;
+    END IF;
+    SELECT COALESCE(MAX(sort_order) + 1, 0) INTO v_order
+    FROM ho_template_parameter WHERE ho_template_id = p_template_id;
+    INSERT INTO ho_template_parameter
+        (ho_template_id, ho_parameter_type_id, is_required, sort_order, created_at)
+    VALUES (p_template_id, p_param_type_id, p_required, v_order, NOW())
+    ON CONFLICT DO NOTHING;
+END;
+$$;
+
+-- Удалить параметр из шаблона
+CREATE OR REPLACE PROCEDURE remove_template_parameter(
+    p_template_id   BIGINT,
+    p_param_type_id BIGINT
+)
+LANGUAGE plpgsql AS $$
+BEGIN
+    DELETE FROM ho_template_parameter
+    WHERE ho_template_id = p_template_id
+      AND ho_parameter_type_id = p_param_type_id;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Параметр id=% не найден в шаблоне id=%', p_param_type_id, p_template_id;
+    END IF;
+END;
+$$;
+
+-- Добавить роль к шаблону
+CREATE OR REPLACE PROCEDURE add_template_role(
+    p_template_id  BIGINT,
+    p_role_type_id BIGINT,
+    p_required     BOOLEAN DEFAULT FALSE
+)
+LANGUAGE plpgsql AS $$
+DECLARE v_order INT;
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM ho_template WHERE id = p_template_id) THEN
+        RAISE EXCEPTION 'Шаблон ХО id=% не найден', p_template_id;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM ho_role_type WHERE id = p_role_type_id) THEN
+        RAISE EXCEPTION 'Тип роли id=% не найден', p_role_type_id;
+    END IF;
+    SELECT COALESCE(MAX(sort_order) + 1, 0) INTO v_order
+    FROM ho_template_role WHERE ho_template_id = p_template_id;
+    INSERT INTO ho_template_role
+        (ho_template_id, ho_role_type_id, is_required, sort_order, created_at)
+    VALUES (p_template_id, p_role_type_id, p_required, v_order, NOW())
+    ON CONFLICT DO NOTHING;
+END;
+$$;
+
+-- Получить полный состав шаблона (параметры + роли)
+CREATE OR REPLACE FUNCTION get_template_definition(p_template_id BIGINT)
+RETURNS TABLE(
+    entity      VARCHAR,
+    code        VARCHAR,
+    name        VARCHAR,
+    data_type   VARCHAR,
+    is_required BOOLEAN,
+    sort_order  INT
+)
+LANGUAGE sql AS $$
+    SELECT 'PARAMETER'::VARCHAR, pt.code, pt.name, pt.data_type, tp.is_required, tp.sort_order
+    FROM ho_template_parameter tp
+    JOIN ho_parameter_type pt ON pt.id = tp.ho_parameter_type_id
+    WHERE tp.ho_template_id = p_template_id
+    UNION ALL
+    SELECT 'ROLE'::VARCHAR, rt.code, rt.name, 'ROLE'::VARCHAR, tr.is_required, tr.sort_order
+    FROM ho_template_role tr
+    JOIN ho_role_type rt ON rt.id = tr.ho_role_type_id
+    WHERE tr.ho_template_id = p_template_id
+    ORDER BY 1, 6;
+$$;
+
+-- -----------------------------------------------------------------------------
+-- 9.3 Экземпляры ХО
+-- -----------------------------------------------------------------------------
+
+-- Создать экземпляр ХО по шаблону
+CREATE OR REPLACE FUNCTION create_ho_instance(
+    p_template_id BIGINT,
+    p_code        VARCHAR(100),
+    p_name        VARCHAR(255),
+    p_doc_date    DATE DEFAULT CURRENT_DATE
+)
+RETURNS BIGINT
+LANGUAGE plpgsql AS $$
+DECLARE v_id BIGINT;
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM ho_template WHERE id = p_template_id) THEN
+        RAISE EXCEPTION 'Шаблон ХО id=% не найден', p_template_id;
+    END IF;
+    IF EXISTS (SELECT 1 FROM ho_instance WHERE code = p_code) THEN
+        RAISE EXCEPTION 'Экземпляр ХО с кодом "%" уже существует', p_code;
+    END IF;
+    INSERT INTO ho_instance(ho_template_id, code, name, doc_date, status, created_at, updated_at)
+    VALUES (p_template_id, p_code, p_name, p_doc_date, 'DRAFT', NOW(), NOW())
+    RETURNING id INTO v_id;
+    RETURN v_id;
+END;
+$$;
+
+-- Установить числовое значение параметра экземпляра (с проверкой диапазона)
+CREATE OR REPLACE PROCEDURE set_instance_numeric(
+    p_instance_id BIGINT,
+    p_param_code  VARCHAR(100),
+    p_value       NUMERIC(19,6)
+)
+LANGUAGE plpgsql AS $$
+DECLARE
+    v_pt_id BIGINT;
+    v_min   NUMERIC(19,6);
+    v_max   NUMERIC(19,6);
+BEGIN
+    SELECT id, min_value, max_value INTO v_pt_id, v_min, v_max
+    FROM ho_parameter_type WHERE code = p_param_code;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Тип параметра "%" не найден', p_param_code;
+    END IF;
+    IF v_min IS NOT NULL AND p_value < v_min THEN
+        RAISE EXCEPTION 'Значение % меньше допустимого минимума %', p_value, v_min;
+    END IF;
+    IF v_max IS NOT NULL AND p_value > v_max THEN
+        RAISE EXCEPTION 'Значение % больше допустимого максимума %', p_value, v_max;
+    END IF;
+    INSERT INTO ho_instance_value(ho_instance_id, ho_parameter_type_id, numeric_value, created_at, updated_at)
+    VALUES (p_instance_id, v_pt_id, p_value, NOW(), NOW())
+    ON CONFLICT (ho_instance_id, ho_parameter_type_id)
+    DO UPDATE SET numeric_value = EXCLUDED.numeric_value, updated_at = NOW();
+END;
+$$;
+
+-- Установить строковое значение параметра экземпляра
+CREATE OR REPLACE PROCEDURE set_instance_string(
+    p_instance_id BIGINT,
+    p_param_code  VARCHAR(100),
+    p_value       VARCHAR(1000)
+)
+LANGUAGE plpgsql AS $$
+DECLARE v_pt_id BIGINT;
+BEGIN
+    SELECT id INTO v_pt_id FROM ho_parameter_type WHERE code = p_param_code;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Тип параметра "%" не найден', p_param_code;
+    END IF;
+    INSERT INTO ho_instance_value(ho_instance_id, ho_parameter_type_id, string_value, created_at, updated_at)
+    VALUES (p_instance_id, v_pt_id, p_value, NOW(), NOW())
+    ON CONFLICT (ho_instance_id, ho_parameter_type_id)
+    DO UPDATE SET string_value = EXCLUDED.string_value, updated_at = NOW();
+END;
+$$;
+
+-- Установить значение-дату параметра экземпляра
+CREATE OR REPLACE PROCEDURE set_instance_date(
+    p_instance_id BIGINT,
+    p_param_code  VARCHAR(100),
+    p_value       DATE
+)
+LANGUAGE plpgsql AS $$
+DECLARE v_pt_id BIGINT;
+BEGIN
+    SELECT id INTO v_pt_id FROM ho_parameter_type WHERE code = p_param_code;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Тип параметра "%" не найден', p_param_code;
+    END IF;
+    INSERT INTO ho_instance_value(ho_instance_id, ho_parameter_type_id, date_value, created_at, updated_at)
+    VALUES (p_instance_id, v_pt_id, p_value, NOW(), NOW())
+    ON CONFLICT (ho_instance_id, ho_parameter_type_id)
+    DO UPDATE SET date_value = EXCLUDED.date_value, updated_at = NOW();
+END;
+$$;
+
+-- Назначить контрагента на роль в экземпляре
+CREATE OR REPLACE PROCEDURE assign_instance_role(
+    p_instance_id  BIGINT,
+    p_role_code    VARCHAR(100),
+    p_counterparty VARCHAR(255)
+)
+LANGUAGE plpgsql AS $$
+DECLARE v_rt_id BIGINT;
+BEGIN
+    SELECT id INTO v_rt_id FROM ho_role_type WHERE code = p_role_code;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Тип роли "%" не найден', p_role_code;
+    END IF;
+    INSERT INTO ho_instance_role(ho_instance_id, ho_role_type_id, counterparty, created_at, updated_at)
+    VALUES (p_instance_id, v_rt_id, p_counterparty, NOW(), NOW())
+    ON CONFLICT (ho_instance_id, ho_role_type_id)
+    DO UPDATE SET counterparty = EXCLUDED.counterparty, updated_at = NOW();
+END;
+$$;
+
+-- Изменить статус экземпляра ХО (DRAFT → ACTIVE → CLOSED)
+CREATE OR REPLACE PROCEDURE change_ho_status(
+    p_instance_id BIGINT,
+    p_new_status  VARCHAR(20)
+)
+LANGUAGE plpgsql AS $$
+DECLARE v_cur VARCHAR(20);
+BEGIN
+    SELECT status INTO v_cur FROM ho_instance WHERE id = p_instance_id;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Экземпляр ХО id=% не найден', p_instance_id;
+    END IF;
+    IF v_cur = 'CLOSED' THEN
+        RAISE EXCEPTION 'Закрытый экземпляр ХО нельзя изменить';
+    END IF;
+    UPDATE ho_instance SET status = p_new_status, updated_at = NOW()
+    WHERE id = p_instance_id;
+END;
+$$;
+
+-- -----------------------------------------------------------------------------
+-- 9.4 Поиск и просмотр ХО
+-- -----------------------------------------------------------------------------
+
+-- Поиск экземпляров ХО по коду класса (с учётом иерархии)
+CREATE OR REPLACE FUNCTION search_ho_by_class(p_class_code VARCHAR)
+RETURNS TABLE(
+    instance_id   BIGINT,
+    instance_code VARCHAR,
+    instance_name VARCHAR,
+    doc_date      DATE,
+    status        VARCHAR,
+    template_name VARCHAR,
+    class_name    VARCHAR
+)
+LANGUAGE sql AS $$
+    WITH RECURSIVE cls AS (
+        SELECT id FROM ho_class WHERE code = p_class_code
+        UNION ALL
+        SELECT c.id FROM ho_class c JOIN cls ON c.parent_id = cls.id
+    )
+    SELECT i.id, i.code, i.name, i.doc_date, i.status, t.name, hc.name
+    FROM ho_instance i
+    JOIN ho_template t  ON t.id  = i.ho_template_id
+    JOIN ho_class    hc ON hc.id = t.ho_class_id
+    WHERE t.ho_class_id IN (SELECT id FROM cls)
+    ORDER BY i.doc_date DESC NULLS LAST;
+$$;
+
+-- Получить все характеристики экземпляра ХО (параметры + роли)
+CREATE OR REPLACE FUNCTION get_ho_instance_details(p_instance_id BIGINT)
+RETURNS TABLE(
+    section     VARCHAR,
+    param_name  VARCHAR,
+    value_text  VARCHAR
+)
+LANGUAGE sql AS $$
+    SELECT
+        'ПАРАМЕТР'::VARCHAR,
+        pt.name,
+        COALESCE(
+            CAST(v.numeric_value AS VARCHAR),
+            v.string_value,
+            CAST(v.date_value AS VARCHAR),
+            '—'
+        )
+    FROM ho_instance_value v
+    JOIN ho_parameter_type pt ON pt.id = v.ho_parameter_type_id
+    WHERE v.ho_instance_id = p_instance_id
+    UNION ALL
+    SELECT
+        'РОЛЬ'::VARCHAR,
+        rt.name,
+        r.counterparty
+    FROM ho_instance_role r
+    JOIN ho_role_type rt ON rt.id = r.ho_role_type_id
+    WHERE r.ho_instance_id = p_instance_id
+    ORDER BY 1, 2;
+$$;
+
+-- Проверить заполненность обязательных полей экземпляра ХО
+CREATE OR REPLACE FUNCTION check_ho_instance_completeness(p_instance_id BIGINT)
+RETURNS TABLE(
+    entity_type VARCHAR,
+    code        VARCHAR,
+    name        VARCHAR,
+    is_filled   BOOLEAN
+)
+LANGUAGE sql AS $$
+    -- Обязательные параметры
+    SELECT
+        'ПАРАМЕТР'::VARCHAR,
+        pt.code,
+        pt.name,
+        EXISTS (
+            SELECT 1 FROM ho_instance_value v
+            WHERE v.ho_instance_id = p_instance_id
+              AND v.ho_parameter_type_id = pt.id
+        )
+    FROM ho_template_parameter tp
+    JOIN ho_parameter_type pt ON pt.id = tp.ho_parameter_type_id
+    JOIN ho_instance i ON i.ho_template_id = tp.ho_template_id
+    WHERE i.id = p_instance_id AND tp.is_required = TRUE
+    UNION ALL
+    -- Обязательные роли
+    SELECT
+        'РОЛЬ'::VARCHAR,
+        rt.code,
+        rt.name,
+        EXISTS (
+            SELECT 1 FROM ho_instance_role r
+            WHERE r.ho_instance_id = p_instance_id
+              AND r.ho_role_type_id = rt.id
+        )
+    FROM ho_template_role tr
+    JOIN ho_role_type rt ON rt.id = tr.ho_role_type_id
+    JOIN ho_instance i ON i.ho_template_id = tr.ho_template_id
+    WHERE i.id = p_instance_id AND tr.is_required = TRUE
+    ORDER BY 1, 3;
 $$;

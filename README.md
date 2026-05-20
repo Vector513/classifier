@@ -3,6 +3,8 @@
 REST API сервис для работы с иерархическим справочником изделий с полной поддержкой числовых параметров и параметров-перечислений.
 Реализует CRUD, обход дерева, наследование параметров по иерархии, фильтрацию изделий, агрегирование статистики и поиск.
 
+**Задание 1.4** расширяет проект универсальной подсистемой **Хозяйственных операций (ХО)**: иерархический классификатор ХО, конструктор шаблонов с произвольным набором параметров и ролей, создание и заполнение экземпляров ХО, поиск и просмотр характеристик.
+
 ## Требования
 
 - Java 17+
@@ -24,6 +26,11 @@ PostgreSQL будет доступен на `localhost:5434` (БД: `classifier`
 ./gradlew bootRun
 ```
 
+При старте автоматически выполняются:
+- `schema.sql` — DDL новых таблиц ХО (задание 1.4)
+- `procedures.sql` — хранимые процедуры (задания 1.2, 1.3, 1.4)
+- `data.sql` — начальные данные (классификатор изделий + шаблоны и экземпляры ХО)
+
 ### 3. Открыть Swagger UI
 
 ```
@@ -36,7 +43,7 @@ http://localhost:8082/swagger-ui.html
 docker-compose up --build
 ```
 
-> При запуске через Docker приложение доступно на порту **8080** (маппинг в `docker-compose.yml`).
+> При запуске через Docker приложение доступно на порту **8080**.
 > Swagger UI: `http://localhost:8080/swagger-ui.html`
 
 ## Остановка
@@ -146,7 +153,7 @@ docker-compose down -v
 | `DELETE` | `/parameters/{paramId}` | Снять параметр с узла |
 | `GET` | `/values` | Все числовые значения изделия |
 | `GET` | `/values/{paramId}` | Значение конкретного параметра |
-| `PUT` | `/values` | Установить/обновить значение (paramId в теле запроса) |
+| `PUT` | `/values` | Установить/обновить значение |
 | `DELETE` | `/values/{paramId}` | Удалить значение |
 | `GET` | `/aggregates/{paramId}` | Агрегаты (min/max/avg/count) по поддереву |
 | `GET` | `/filter/{paramId}?minVal=&maxVal=` | Фильтрация по диапазону значений |
@@ -157,6 +164,7 @@ docker-compose down -v
 |-------|------|----------|
 | `GET` | `/api/v1/items/search?query=...` | Поиск изделий по коду или названию |
 | `GET` | `/api/v1/items/{nodeId}/parameters` | Узел с полным набором значений параметров |
+| `POST` | `/api/v1/items/filter` | Фильтрация по нескольким параметрам сразу |
 | `GET` | `/api/v1/nodes/{nodeId}/enumerations/effective` | Перечисления узла с учётом наследования |
 | `GET` | `/api/v1/nodes/{classNodeId}/filter/enum?enumerationId=&valueId=` | Фильтрация по значению перечисления |
 | `GET` | `/api/v1/nodes/{classNodeId}/aggregates/enum/{enumerationId}` | Статистика по перечислимому параметру |
@@ -199,75 +207,67 @@ Entity      →  JPA-сущности (маппинг на таблицы Postgr
 
 ```
 src/main/kotlin/com/classifier/
-├── ClassifierApplication.kt              — точка входа + OpenAPI-бин
+├── ClassifierApplication.kt
 ├── entity/
-│   ├── ClassifierNode.kt                 — узел классификатора
-│   ├── UnitOfMeasure.kt                  — единица измерения
-│   ├── EnumerationClass.kt               — класс перечислений (Цвет, ОС…)
-│   ├── Enumeration.kt                    — параметр-перечисление
-│   ├── EnumerationValue.kt               — значение перечисления
-│   ├── NodeAttributeValue.kt             — выбранное значение перечисления у изделия
-│   ├── NumericParameter.kt               — числовой параметр (с min/max диапазоном)
-│   ├── NodeNumericParameter.kt           — связь узла с числовым параметром
-│   └── NodeNumericValue.kt               — числовое значение параметра у изделия
+│   ├── ClassifierNode.kt
+│   ├── UnitOfMeasure.kt
+│   ├── EnumerationClass.kt
+│   ├── Enumeration.kt
+│   ├── EnumerationValue.kt
+│   ├── NodeAttributeValue.kt
+│   ├── NumericParameter.kt
+│   ├── NodeNumericParameter.kt
+│   └── NodeNumericValue.kt
 ├── dto/
-│   ├── NodeRequests.kt                   — CreateNodeRequest, UpdateNodeRequest…
-│   ├── NodeResponses.kt                  — NodeResponse, TreeNodeResponse
-│   ├── UnitOfMeasureDtos.kt              — UnitOfMeasureRequest/Response
-│   ├── EnumerationDtos.kt                — все DTO для перечислений
-│   ├── NodeAttributeValueDtos.kt         — SelectEnumerationValueRequest/Response
-│   ├── NumericParameterDtos.kt           — DTO числовых параметров и значений
-│   ├── ItemDtos.kt                       — NodeWithParametersResponse, агрегаты
-│   └── CommonDtos.kt                     — ErrorResponse, ValidationResponse
+│   ├── NodeRequests.kt
+│   ├── NodeResponses.kt
+│   ├── UnitOfMeasureDtos.kt
+│   ├── EnumerationDtos.kt
+│   ├── NodeAttributeValueDtos.kt
+│   ├── NumericParameterDtos.kt
+│   ├── ItemDtos.kt                 — поиск, фильтрация, агрегаты
+│   └── CommonDtos.kt
 ├── repository/
-│   ├── ClassifierNodeRepository.kt       — CTE-запросы для обхода дерева
-│   ├── UnitOfMeasureRepository.kt
+│   ├── ClassifierNodeRepository.kt
 │   ├── EnumerationRepository.kt
 │   ├── EnumerationValueRepository.kt
 │   ├── NodeAttributeValueRepository.kt
 │   ├── NumericParameterRepository.kt
 │   ├── NodeNumericParameterRepository.kt
-│   └── NodeNumericValueRepository.kt     — агрегаты через нативный CTE-запрос
+│   └── NodeNumericValueRepository.kt
 ├── service/
-│   ├── ClassifierNodeService.kt          — CRUD, перемещение, переупорядочивание
-│   ├── TreeTraversalService.kt           — потомки, предки, терминальные, циклы
+│   ├── ClassifierNodeService.kt
+│   ├── TreeTraversalService.kt
 │   ├── UnitOfMeasureService.kt
-│   ├── EnumerationService.kt             — перечисления, значения, наследование
-│   ├── NodeAttributeValueService.kt      — выбор значения, фильтрация, агрегаты
-│   ├── NumericParameterService.kt        — CRUD, назначение, наследование, агрегаты
-│   └── ItemSearchService.kt              — поиск изделий с батч-загрузкой параметров
-├── controller/
-│   └── GlobalExceptionHandler.kt         — обработка ошибок (404, 409, 400, 422)
-├── mapper/
-│   └── NodeMapper.kt                     — Entity → DTO
-
+│   ├── EnumerationService.kt
+│   ├── NodeAttributeValueService.kt
+│   ├── NumericParameterService.kt
+│   └── ItemSearchService.kt
 └── exception/
-    └── Exceptions.kt                     — все исключения (включая ValueOutOfRangeException)
+    └── Exceptions.kt
 
 src/main/java/com/classifier/controller/
-├── ClassifierNodeController.java         — 14 REST-эндпоинтов
-├── UnitOfMeasureController.java          — 5 REST-эндпоинтов
-├── EnumerationClassController.java       — 6 REST-эндпоинтов (/api/v1/enumeration-classes)
-├── EnumerationController.java            — 9 REST-эндпоинтов
-├── NodeAttributeValueController.java     — 4 REST-эндпоинта
-├── NumericParameterController.java       — 5 REST-эндпоинтов (CRUD параметров)
-├── NodeNumericController.java            — 10 REST-эндпоинтов (значения, наследование, агрегаты)
-└── ItemQueryController.java              — 5 REST-эндпоинтов (поиск, фильтрация)
+├── ClassifierNodeController.java
+├── UnitOfMeasureController.java
+├── EnumerationClassController.java
+├── EnumerationController.java
+├── NodeAttributeValueController.java
+├── NumericParameterController.java
+├── NodeNumericController.java
+└── ItemQueryController.java
 
 src/main/resources/
-├── application.yml                       — конфигурация (БД порт 5434, сервер порт 8082)
-├── data.sql                              — начальные данные (узлы, перечисления, числовые параметры и значения)
-└── procedures.sql                        — хранимые процедуры (наследование, агрегаты, фильтрация)
-
-src/test/kotlin/com/classifier/
-├── repository/                           — интеграционные тесты репозиториев
-├── service/                              — unit-тесты сервисов
-└── controller/                           — интеграционные тесты контроллеров
+├── application.yml      — конфигурация (БД порт 5434, сервер порт 8082)
+├── schema.sql           — DDL таблиц ХО (задание 1.4, выполняется при старте)
+├── procedures.sql       — хранимые процедуры (задания 1.2, 1.3, 1.4)
+└── data.sql             — начальные данные (изделия + шаблоны и экземпляры ХО)
 ```
 
 ---
 
 ## Модель данных
+
+### Классификатор изделий (задания 1.1–1.3)
 
 ```
 unit_of_measure              classifier_node
@@ -290,64 +290,185 @@ enumeration_class            enumeration                  enumeration_value
                              └── updated_at               └── updated_at
 
 node_attribute_value
-├── id (PK)
 ├── classifier_node_id (FK)
 ├── enumeration_id (FK)
 ├── enumeration_value_id (FK)
-├── created_at
-├── updated_at
 └── UNIQUE(classifier_node_id, enumeration_id)
 
 numeric_parameter             node_numeric_parameter       node_numeric_value
-├── id (PK)                  ├── id (PK)                  ├── id (PK)
-├── code (UNIQUE)            ├── classifier_node_id (FK)  ├── classifier_node_id (FK)
-├── name                     ├── numeric_parameter_id(FK) ├── numeric_parameter_id(FK)
-├── description              └── UNIQUE(node, param)      ├── value (NUMERIC 19,6)
-├── min_value (nullable)                                  ├── created_at
-├── max_value (nullable)                                  ├── updated_at
-├── unit_of_measure_id (FK)                               └── UNIQUE(node, param)
-├── created_at
-└── updated_at
+├── id (PK)                  ├── classifier_node_id (FK)  ├── classifier_node_id (FK)
+├── code (UNIQUE)            ├── numeric_parameter_id(FK) ├── numeric_parameter_id(FK)
+├── name                     └── UNIQUE(node, param)      ├── value (NUMERIC 19,6)
+├── min_value (nullable)                                  └── UNIQUE(node, param)
+├── max_value (nullable)
+└── unit_of_measure_id (FK)
 ```
 
-**Паттерн хранения дерева:** Adjacency List + PostgreSQL `WITH RECURSIVE` CTE.
+### Хозяйственные операции (задание 1.4)
 
-**Наследование параметров:** при запросе эффективных параметров узла рекурсивно обходятся все предки — параметры, назначенные родителю, автоматически наследуются потомками. Поле `isInherited` в ответе указывает источник.
+```
+ho_class                         ho_parameter_type              ho_role_type
+├── id (PK)                      ├── id (PK)                    ├── id (PK)
+├── code (UNIQUE)                ├── code (UNIQUE)              ├── code (UNIQUE)
+├── name                         ├── name                       ├── name
+├── parent_id (FK → self)        ├── data_type (NUMBER/         └── description
+└── description                  │   STRING/DATE/ENUM)
+                                 ├── min_value (nullable)
+                                 ├── max_value (nullable)
+                                 └── enum_class_id (FK)
 
-**Валидация диапазона:** при установке числового значения проверяется попадание в `[minValue, maxValue]`. Нарушение возвращает HTTP 422.
+ho_template                      ho_template_parameter          ho_template_role
+├── id (PK)                      ├── ho_template_id (FK)        ├── ho_template_id (FK)
+├── ho_class_id (FK)             ├── ho_parameter_type_id (FK)  ├── ho_role_type_id (FK)
+├── code (UNIQUE)                ├── is_required                ├── is_required
+├── name                         ├── sort_order                 ├── sort_order
+└── description                  └── UNIQUE(template, param)    └── UNIQUE(template, role)
 
-**Агрегаты:** реализованы через нативные CTE-запросы к PostgreSQL — `min`, `max`, `avg`, `count` для числовых параметров и подсчёт по значениям для перечислений.
+ho_instance                      ho_instance_value              ho_instance_role
+├── id (PK)                      ├── ho_instance_id (FK)        ├── ho_instance_id (FK)
+├── ho_template_id (FK)          ├── ho_parameter_type_id (FK)  ├── ho_role_type_id (FK)
+├── code (UNIQUE)                ├── numeric_value              ├── counterparty
+├── name                         ├── string_value               └── UNIQUE(instance, role)
+├── doc_date                     ├── date_value
+└── status (DRAFT/ACTIVE/CLOSED) └── UNIQUE(instance, param)
+```
+
+**Связь с классификатором изделий:** `ho_parameter_type.enum_class_id` ссылается на `enumeration_class` — параметры типа ENUM переиспользуют существующие справочники перечислений.
+
+---
+
+## SQL-процедуры (`procedures.sql`)
+
+### Задания 1.2–1.3 — классификатор изделий
+
+| Функция / процедура | Описание |
+|---------------------|----------|
+| `create_enumeration_class(code, name)` | Создать класс перечисления |
+| `create_enumeration(code, name, classId, nodeId)` | Создать перечисление |
+| `add_enumeration_value(enumId, code, name)` | Добавить значение |
+| `reorder_enumeration_value(id, newPos)` | Изменить порядок значения |
+| `select_enumeration_value(nodeId, enumId, valueId)` | Выбрать значение для узла |
+| `create_numeric_parameter(code, name, min, max)` | Создать числовой параметр |
+| `assign_numeric_parameter(nodeId, paramId)` | Назначить параметр узлу |
+| `set_numeric_value(nodeId, paramId, value)` | Установить значение (с проверкой диапазона) |
+| `get_effective_numeric_parameters(nodeId)` | Параметры с учётом наследования |
+| `get_effective_enumerations(nodeId)` | Перечисления с учётом наследования |
+| `filter_nodes_by_enum(rootId, enumId, valueId)` | Фильтрация по значению перечисления |
+| `filter_nodes_by_numeric(rootId, paramId, min, max)` | Фильтрация по диапазону |
+| `get_numeric_aggregates(rootId, paramId)` | Агрегаты (min/max/avg) по поддереву |
+| `get_enum_aggregates(rootId, enumId)` | Распределение по значениям перечисления |
+| `search_items_with_parameters(query)` | Поиск изделий с выводом всех параметров |
+
+### Задание 1.4 — хозяйственные операции
+
+| Функция / процедура | Описание |
+|---------------------|----------|
+| `create_ho_class(code, name, parentId)` | Создать узел классификатора ХО |
+| `get_ho_class_tree()` | Дерево классификатора ХО |
+| `create_ho_template(classId, code, name)` | Создать шаблон ХО |
+| `add_template_parameter(templateId, paramTypeId, required)` | Добавить параметр к шаблону |
+| `remove_template_parameter(templateId, paramTypeId)` | Удалить параметр из шаблона |
+| `add_template_role(templateId, roleTypeId, required)` | Добавить роль к шаблону |
+| `get_template_definition(templateId)` | Полный состав шаблона (параметры + роли) |
+| `create_ho_instance(templateId, code, name, date)` | Создать экземпляр ХО |
+| `set_instance_numeric(instanceId, paramCode, value)` | Установить числовое значение (с проверкой min/max) |
+| `set_instance_string(instanceId, paramCode, value)` | Установить строковое значение |
+| `set_instance_date(instanceId, paramCode, value)` | Установить значение-дату |
+| `assign_instance_role(instanceId, roleCode, counterparty)` | Назначить контрагента на роль |
+| `change_ho_status(instanceId, newStatus)` | Изменить статус (DRAFT→ACTIVE→CLOSED) |
+| `search_ho_by_class(classCode)` | Поиск ХО по классу (с учётом иерархии) |
+| `get_ho_instance_details(instanceId)` | Все характеристики экземпляра ХО |
+| `check_ho_instance_completeness(instanceId)` | Проверка заполненности обязательных полей |
 
 ---
 
 ## Начальные данные (`data.sql`)
 
+### Классификатор изделий
+
 | Тип | Количество | Примеры |
 |-----|-----------|---------|
-| Узлы классификатора | 29 | Электроника → Смартфоны → Galaxy S24, iPhone 15 Pro… |
-| Единицы измерения | 4 | г, мАч, дюйм, ГБ |
+| Узлы классификатора | 29 | Электроника → Смартфоны → Galaxy S24, iPhone 16… |
+| Единицы измерения | 4 | шт, кг, м, упак |
 | Классы перечислений | 4 | COLOR, STORAGE, CONNECTOR, OS |
-| Перечисления | 6 | Цвет, Операционная система, Тип памяти… |
+| Перечисления | 6 | Цвет смартфонов, ОС, Тип памяти… |
 | Значения перечислений | 24 | Чёрный, Android, iOS, 128 ГБ… |
 | Числовые параметры | 5 | WEIGHT, BATTERY, SCREEN_SIZE, RAM, PRICE |
-| Назначения числовых параметров | 8 | ELECTRONICS→WEIGHT+PRICE, PHONES→BATTERY+SCREEN+RAM… |
 | Числовые значения изделий | 30 | 6 моделей × 5 параметров |
+
+### Хозяйственные операции (задание 1.4)
+
+| Тип | Количество | Примеры |
+|-----|-----------|---------|
+| Классы ХО | 6 | Товарные операции → Отгрузка, Закупка; Денежные → ПКО, РКО |
+| Типы параметров | 6 | NOMER_DOC, SUMMA, KOLICHESTVO, SKLAD, OSNOVANIE, DATA_DOGOVORA |
+| Типы ролей | 5 | Поставщик, Покупатель, Кассир, Бухгалтер, МОЛ |
+| Шаблоны ХО | 3 | Стандартная отгрузка, ПКО, Закупка материалов |
+| Экземпляры ХО | 4 | OTGR-2026-001/002, PKO-2026-001/002 |
+
+### Примеры SQL-запросов для тестирования
+
+```sql
+-- Дерево классификатора ХО
+SELECT * FROM get_ho_class_tree();
+
+-- Состав шаблона "Стандартная отгрузка"
+SELECT * FROM get_template_definition(1);
+
+-- Поиск всех отгрузок (включая подклассы)
+SELECT * FROM search_ho_by_class('OTGRUZKA');
+
+-- Все характеристики экземпляра ХО №1
+SELECT * FROM get_ho_instance_details(1);
+
+-- Проверить заполненность обязательных полей
+SELECT * FROM check_ho_instance_completeness(2);
+
+-- Создать новый экземпляр отгрузки
+SELECT create_ho_instance(1, 'OTGR-2026-003', 'Тестовая отгрузка', '2026-05-25');
+
+-- Заполнить параметры
+CALL set_instance_string(5, 'NOMER_DOC', 'ТН-00003');
+CALL set_instance_numeric(5, 'SUMMA', 150000);
+CALL assign_instance_role(5, 'SUPPLIER', 'ООО «Поставщик»');
+CALL assign_instance_role(5, 'BUYER', 'ИП Иванов А.А.');
+CALL assign_instance_role(5, 'MOL', 'Кладовщик П.П.');
+
+-- Активировать
+CALL change_ho_status(5, 'ACTIVE');
+```
 
 ### Примеры тестовых запросов через Swagger UI
 
 ```
-# Все параметры смартфона Galaxy S24 с наследованием
-GET /api/v1/nodes/6/numeric/parameters/effective
+# Все параметры смартфона iPhone 16 с наследованием
+GET /api/v1/nodes/21/numeric/parameters/effective
 
 # Агрегаты по аккумулятору в классе "Смартфоны"
-GET /api/v1/nodes/4/numeric/aggregates/2
+GET /api/v1/nodes/2/numeric/aggregates/2
 
 # Смартфоны с RAM >= 8 ГБ
-GET /api/v1/nodes/4/numeric/filter/4?minVal=8
+GET /api/v1/nodes/2/numeric/filter/4?minVal=8
 
 # Распределение смартфонов по ОС
-GET /api/v1/nodes/4/aggregates/enum/2
+GET /api/v1/nodes/2/aggregates/enum/6
 
 # Поиск изделий по названию
 GET /api/v1/items/search?query=Galaxy
+
+# Фильтрация по нескольким параметрам
+POST /api/v1/items/filter
+{
+  "rootNodeId": 2,
+  "numericFilters": [{ "parameterId": 4, "minValue": 8 }],
+  "enumFilters":   [{ "enumerationId": 6, "valueId": 22 }]
+}
 ```
+
+**Паттерн хранения дерева:** Adjacency List + PostgreSQL `WITH RECURSIVE` CTE.
+
+**Наследование параметров:** при запросе эффективных параметров узла рекурсивно обходятся все предки — параметры родителя автоматически доступны потомкам. Поле `isInherited` в ответе указывает источник.
+
+**Валидация диапазона:** при установке числового значения (как для изделий, так и для ХО) проверяется попадание в `[minValue, maxValue]`. Нарушение возвращает HTTP 422 / исключение в процедуре.
+
+**Поиск ХО по иерархии:** `search_ho_by_class('TOVAR')` вернёт и отгрузки, и закупки — рекурсивный CTE обходит все подклассы.

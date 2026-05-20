@@ -12,6 +12,8 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
+import static org.springframework.http.MediaType.APPLICATION_JSON_VALUE;
+
 @RestController
 @Tag(name = "Поиск и анализ изделий", description = "Поиск с параметрами, наследование перечислений, фильтрация и агрегаты")
 @RequiredArgsConstructor
@@ -41,6 +43,21 @@ public class ItemQueryController {
     )
     public NodeWithParametersResponse getWithParameters(@PathVariable Long nodeId) {
         return searchService.getNodeWithParameters(nodeId);
+    }
+
+    // ─── Фильтрация по нескольким параметрам ─────────────────────────────────
+
+    @PostMapping(value = "/api/v1/items/filter", consumes = APPLICATION_JSON_VALUE)
+    @Operation(
+        summary = "Фильтрация изделий по нескольким параметрам",
+        description = "Возвращает узлы, удовлетворяющие ВСЕМ заданным фильтрам одновременно. " +
+                      "Числовые фильтры задают диапазон [minValue, maxValue], " +
+                      "перечислимые — точное совпадение значения. " +
+                      "Поле rootNodeId ограничивает поиск поддеревом указанного узла."
+    )
+    public List<NodeWithParametersResponse> filterByMultipleParams(
+            @RequestBody MultiFilterRequest request) {
+        return searchService.searchByMultipleFilters(request);
     }
 
     // ─── Наследование перечислений ────────────────────────────────────────────
