@@ -103,9 +103,11 @@ VALUES (28, 'LAPTOPS-LENOVO-TP', 'ThinkPad X1 Carbon', 11, 0, 1, NOW(), NOW()) O
 INSERT INTO classifier_node (id, code, name, parent_id, sort_order, unit_of_measure_id, created_at, updated_at)
 VALUES (29, 'LAPTOPS-LENOVO-YOGA', 'Yoga 9i', 11, 1, 1, NOW(), NOW()) ON CONFLICT DO NOTHING;
 
--- Сброс sequence чтобы новые записи получали id > 29
-SELECT setval('classifier_node_id_seq', 29);
-SELECT setval('unit_of_measure_id_seq', 4);
+-- Синхронизация sequence с фактическим максимумом id.
+-- Берём MAX(id), а не константу, чтобы данные, добавленные через приложение,
+-- не приводили к конфликту первичного ключа при последующих запусках.
+SELECT setval('classifier_node_id_seq', GREATEST((SELECT COALESCE(MAX(id), 0) FROM classifier_node), 1));
+SELECT setval('unit_of_measure_id_seq', GREATEST((SELECT COALESCE(MAX(id), 0) FROM unit_of_measure), 1));
 
 -- ─── Классы перечислений ───────────────────────────────────────────────────
 INSERT INTO enumeration_class (id, code, name, description, created_at, updated_at)
@@ -205,10 +207,10 @@ VALUES (23, 'IOS',     'iOS',     6, 1, NOW(), NOW()) ON CONFLICT DO NOTHING;
 INSERT INTO enumeration_value (id, code, name, enumeration_id, sort_order, created_at, updated_at)
 VALUES (24, 'HARMONY', 'HarmonyOS', 6, 2, NOW(), NOW()) ON CONFLICT DO NOTHING;
 
--- Сброс sequences для новых таблиц
-SELECT setval('enumeration_class_id_seq', 4);
-SELECT setval('enumeration_id_seq', 6);
-SELECT setval('enumeration_value_id_seq', 24);
+-- Синхронизация sequences с фактическим максимумом id
+SELECT setval('enumeration_class_id_seq', GREATEST((SELECT COALESCE(MAX(id), 0) FROM enumeration_class), 1));
+SELECT setval('enumeration_id_seq', GREATEST((SELECT COALESCE(MAX(id), 0) FROM enumeration), 1));
+SELECT setval('enumeration_value_id_seq', GREATEST((SELECT COALESCE(MAX(id), 0) FROM enumeration_value), 1));
 
 -- ═══════════════════════════════════════════════════════════════════════════
 -- Числовые параметры (задание 1.3)
@@ -230,7 +232,7 @@ VALUES (4, 'RAM',          'Объём ОЗУ',            'Объём опер�
 INSERT INTO numeric_parameter (id, code, name, description, min_value, max_value, unit_of_measure_id, created_at, updated_at)
 VALUES (5, 'PRICE',        'Цена',                 'Рекомендуемая розничная цена (руб)', 0.01, 9999999.0, NULL, NOW(), NOW()) ON CONFLICT DO NOTHING;
 
-SELECT setval('numeric_parameter_id_seq', 5);
+SELECT setval('numeric_parameter_id_seq', GREATEST((SELECT COALESCE(MAX(id), 0) FROM numeric_parameter), 1));
 
 -- ─── Назначение числовых параметров на классы (с наследованием) ───────────
 -- Все электронные изделия имеют массу и цену (назначаем на корень ELECTRONICS id=1)
@@ -260,7 +262,7 @@ VALUES (7, 3, 3, NOW()) ON CONFLICT DO NOTHING;  -- LAPTOPS → SCREEN_SIZE
 INSERT INTO node_numeric_parameter (id, classifier_node_id, numeric_parameter_id, created_at)
 VALUES (8, 3, 4, NOW()) ON CONFLICT DO NOTHING;  -- LAPTOPS → RAM
 
-SELECT setval('node_numeric_parameter_id_seq', 8);
+SELECT setval('node_numeric_parameter_id_seq', GREATEST((SELECT COALESCE(MAX(id), 0) FROM node_numeric_parameter), 1));
 
 -- ─── Значения числовых параметров для конкретных моделей (изделий) ────────
 -- iPhone 16 (id=21): масса=170г, батарея=3561мАч, экран=6.1", ОЗУ=8ГБ, цена=89990
@@ -335,221 +337,4 @@ VALUES (29, 27, 4, 18.0,    NOW(), NOW()) ON CONFLICT DO NOTHING;
 INSERT INTO node_numeric_value (id, classifier_node_id, numeric_parameter_id, value, created_at, updated_at)
 VALUES (30, 27, 5, 219990.0,NOW(), NOW()) ON CONFLICT DO NOTHING;
 
-INSERT INTO node_attribute_value (classifier_node_id, enumeration_id, enumeration_value_id, created_at, updated_at) VALUES
--- iPhone 16 (node 20): Чёрный, 128 ГБ, iOS
-(20, 1, 1,  NOW(), NOW()),
-(20, 3, 10, NOW(), NOW()),
-(20, 6, 23, NOW(), NOW()),
--- iPhone 16 Pro (node 21): Золотой, 512 ГБ, iOS
-(21, 1, 3,  NOW(), NOW()),
-(21, 3, 12, NOW(), NOW()),
-(21, 6, 23, NOW(), NOW()),
--- iPhone 15 (node 22): Синий, 256 ГБ, iOS
-(22, 1, 4,  NOW(), NOW()),
-(22, 3, 11, NOW(), NOW()),
-(22, 6, 23, NOW(), NOW()),
--- Galaxy S24 (node 23): Чёрный, 256 ГБ, Android
-(23, 1, 1,  NOW(), NOW()),
-(23, 3, 11, NOW(), NOW()),
-(23, 6, 22, NOW(), NOW()),
--- Galaxy S24 Ultra (node 24): Белый, 512 ГБ, Android
-(24, 1, 2,  NOW(), NOW()),
-(24, 3, 12, NOW(), NOW()),
-(24, 6, 22, NOW(), NOW()),
--- Xiaomi 14 (node 25): Зелёный, 256 ГБ, Android
-(25, 1, 5,  NOW(), NOW()),
-(25, 3, 11, NOW(), NOW()),
-(25, 6, 22, NOW(), NOW()),
--- MacBook Air M3 (node 26): Серебристый, 512 ГБ SSD
-(26, 2, 6,  NOW(), NOW()),
-(26, 4, 15, NOW(), NOW()),
--- MacBook Pro M3 (node 27): Серый космос, 1 ТБ SSD
-(27, 2, 7,  NOW(), NOW()),
-(27, 4, 16, NOW(), NOW()),
--- ThinkPad X1 Carbon (node 28): Полуночный, 512 ГБ SSD
-(28, 2, 8,  NOW(), NOW()),
-(28, 4, 15, NOW(), NOW()),
--- Yoga 9i (node 29): Серебристый, 1 ТБ SSD
-(29, 2, 6,  NOW(), NOW()),
-(29, 4, 16, NOW(), NOW())
-ON CONFLICT (classifier_node_id, enumeration_id) DO NOTHING;
-
-SELECT setval('node_numeric_value_id_seq', 30);
-
--- ═══════════════════════════════════════════════════════════════════════════
--- Хозяйственные операции (задание 1.4)
--- ═══════════════════════════════════════════════════════════════════════════
-
--- ─── Классификатор ХО ─────────────────────────────────────────────────────
-INSERT INTO ho_class (id, code, name, parent_id, created_at, updated_at)
-VALUES (1, 'TOVAR',    'Товарные операции',    NULL, NOW(), NOW()) ON CONFLICT DO NOTHING;
-INSERT INTO ho_class (id, code, name, parent_id, created_at, updated_at)
-VALUES (2, 'OTGRUZKA', 'Отгрузка',             1,    NOW(), NOW()) ON CONFLICT DO NOTHING;
-INSERT INTO ho_class (id, code, name, parent_id, created_at, updated_at)
-VALUES (3, 'ZAKUPKA',  'Закупка',              1,    NOW(), NOW()) ON CONFLICT DO NOTHING;
-INSERT INTO ho_class (id, code, name, parent_id, created_at, updated_at)
-VALUES (4, 'DENEG',    'Денежные операции',    NULL, NOW(), NOW()) ON CONFLICT DO NOTHING;
-INSERT INTO ho_class (id, code, name, parent_id, created_at, updated_at)
-VALUES (5, 'PKO',      'Приходный кассовый ордер', 4, NOW(), NOW()) ON CONFLICT DO NOTHING;
-INSERT INTO ho_class (id, code, name, parent_id, created_at, updated_at)
-VALUES (6, 'RKO',      'Расходный кассовый ордер', 4, NOW(), NOW()) ON CONFLICT DO NOTHING;
-SELECT setval('ho_class_id_seq', 6);
-
--- ─── Типы параметров ХО ───────────────────────────────────────────────────
-INSERT INTO ho_parameter_type (id, code, name, data_type, min_value, max_value, created_at, updated_at)
-VALUES (1, 'NOMER_DOC',   'Номер документа',       'STRING', NULL, NULL,      NOW(), NOW()) ON CONFLICT DO NOTHING;
-INSERT INTO ho_parameter_type (id, code, name, data_type, min_value, max_value, created_at, updated_at)
-VALUES (2, 'SUMMA',       'Сумма операции (руб)',  'NUMBER', 0,    999999999, NOW(), NOW()) ON CONFLICT DO NOTHING;
-INSERT INTO ho_parameter_type (id, code, name, data_type, min_value, max_value, created_at, updated_at)
-VALUES (3, 'KOLICHESTVO', 'Количество позиций',    'NUMBER', 1,    100000,    NOW(), NOW()) ON CONFLICT DO NOTHING;
-INSERT INTO ho_parameter_type (id, code, name, data_type, min_value, max_value, created_at, updated_at)
-VALUES (4, 'SKLAD',       'Склад отгрузки',        'STRING', NULL, NULL,      NOW(), NOW()) ON CONFLICT DO NOTHING;
-INSERT INTO ho_parameter_type (id, code, name, data_type, min_value, max_value, created_at, updated_at)
-VALUES (5, 'OSNOVANIE',   'Основание документа',   'STRING', NULL, NULL,      NOW(), NOW()) ON CONFLICT DO NOTHING;
-INSERT INTO ho_parameter_type (id, code, name, data_type, min_value, max_value, created_at, updated_at)
-VALUES (6, 'DATA_DOGOVORA','Дата договора',         'DATE',  NULL, NULL,      NOW(), NOW()) ON CONFLICT DO NOTHING;
-SELECT setval('ho_parameter_type_id_seq', 6);
-
--- ─── Типы ролей ───────────────────────────────────────────────────────────
-INSERT INTO ho_role_type (id, code, name, created_at, updated_at)
-VALUES (1, 'SUPPLIER',   'Поставщик',                          NOW(), NOW()) ON CONFLICT DO NOTHING;
-INSERT INTO ho_role_type (id, code, name, created_at, updated_at)
-VALUES (2, 'BUYER',      'Покупатель (Получатель)',             NOW(), NOW()) ON CONFLICT DO NOTHING;
-INSERT INTO ho_role_type (id, code, name, created_at, updated_at)
-VALUES (3, 'CASHIER',    'Кассир',                             NOW(), NOW()) ON CONFLICT DO NOTHING;
-INSERT INTO ho_role_type (id, code, name, created_at, updated_at)
-VALUES (4, 'ACCOUNTANT', 'Бухгалтер',                         NOW(), NOW()) ON CONFLICT DO NOTHING;
-INSERT INTO ho_role_type (id, code, name, created_at, updated_at)
-VALUES (5, 'MOL',        'Материально-ответственное лицо',     NOW(), NOW()) ON CONFLICT DO NOTHING;
-SELECT setval('ho_role_type_id_seq', 5);
-
--- ─── Шаблон «Отгрузка товара» ─────────────────────────────────────────────
-INSERT INTO ho_template (id, ho_class_id, code, name, description, created_at, updated_at)
-VALUES (1, 2, 'OTGR_STANDART', 'Стандартная отгрузка товара',
-        'Товарная накладная на отгрузку со склада', NOW(), NOW()) ON CONFLICT DO NOTHING;
-
-INSERT INTO ho_template_parameter (ho_template_id, ho_parameter_type_id, is_required, sort_order, created_at)
-VALUES (1, 1, TRUE,  0, NOW()) ON CONFLICT DO NOTHING;  -- NOMER_DOC
-INSERT INTO ho_template_parameter (ho_template_id, ho_parameter_type_id, is_required, sort_order, created_at)
-VALUES (1, 2, TRUE,  1, NOW()) ON CONFLICT DO NOTHING;  -- SUMMA
-INSERT INTO ho_template_parameter (ho_template_id, ho_parameter_type_id, is_required, sort_order, created_at)
-VALUES (1, 3, TRUE,  2, NOW()) ON CONFLICT DO NOTHING;  -- KOLICHESTVO
-INSERT INTO ho_template_parameter (ho_template_id, ho_parameter_type_id, is_required, sort_order, created_at)
-VALUES (1, 4, TRUE,  3, NOW()) ON CONFLICT DO NOTHING;  -- SKLAD
-
-INSERT INTO ho_template_role (ho_template_id, ho_role_type_id, is_required, sort_order, created_at)
-VALUES (1, 1, TRUE,  0, NOW()) ON CONFLICT DO NOTHING;  -- SUPPLIER
-INSERT INTO ho_template_role (ho_template_id, ho_role_type_id, is_required, sort_order, created_at)
-VALUES (1, 2, TRUE,  1, NOW()) ON CONFLICT DO NOTHING;  -- BUYER
-INSERT INTO ho_template_role (ho_template_id, ho_role_type_id, is_required, sort_order, created_at)
-VALUES (1, 5, TRUE,  2, NOW()) ON CONFLICT DO NOTHING;  -- MOL
-
--- ─── Шаблон «Приходный кассовый ордер» ───────────────────────────────────
-INSERT INTO ho_template (id, ho_class_id, code, name, description, created_at, updated_at)
-VALUES (2, 5, 'PKO_STANDART', 'Стандартный ПКО',
-        'Приходный кассовый ордер КО-1', NOW(), NOW()) ON CONFLICT DO NOTHING;
-
-INSERT INTO ho_template_parameter (ho_template_id, ho_parameter_type_id, is_required, sort_order, created_at)
-VALUES (2, 1, TRUE,  0, NOW()) ON CONFLICT DO NOTHING;  -- NOMER_DOC
-INSERT INTO ho_template_parameter (ho_template_id, ho_parameter_type_id, is_required, sort_order, created_at)
-VALUES (2, 2, TRUE,  1, NOW()) ON CONFLICT DO NOTHING;  -- SUMMA
-INSERT INTO ho_template_parameter (ho_template_id, ho_parameter_type_id, is_required, sort_order, created_at)
-VALUES (2, 5, FALSE, 2, NOW()) ON CONFLICT DO NOTHING;  -- OSNOVANIE
-
-INSERT INTO ho_template_role (ho_template_id, ho_role_type_id, is_required, sort_order, created_at)
-VALUES (2, 3, TRUE,  0, NOW()) ON CONFLICT DO NOTHING;  -- CASHIER
-INSERT INTO ho_template_role (ho_template_id, ho_role_type_id, is_required, sort_order, created_at)
-VALUES (2, 4, TRUE,  1, NOW()) ON CONFLICT DO NOTHING;  -- ACCOUNTANT
-
--- ─── Шаблон «Закупка материалов» ──────────────────────────────────────────
-INSERT INTO ho_template (id, ho_class_id, code, name, description, created_at, updated_at)
-VALUES (3, 3, 'ZAKUP_STANDART', 'Стандартная закупка материалов',
-        'Накладная на приход товара от поставщика', NOW(), NOW()) ON CONFLICT DO NOTHING;
-
-INSERT INTO ho_template_parameter (ho_template_id, ho_parameter_type_id, is_required, sort_order, created_at)
-VALUES (3, 1, TRUE,  0, NOW()) ON CONFLICT DO NOTHING;  -- NOMER_DOC
-INSERT INTO ho_template_parameter (ho_template_id, ho_parameter_type_id, is_required, sort_order, created_at)
-VALUES (3, 2, TRUE,  1, NOW()) ON CONFLICT DO NOTHING;  -- SUMMA
-INSERT INTO ho_template_parameter (ho_template_id, ho_parameter_type_id, is_required, sort_order, created_at)
-VALUES (3, 3, TRUE,  2, NOW()) ON CONFLICT DO NOTHING;  -- KOLICHESTVO
-INSERT INTO ho_template_parameter (ho_template_id, ho_parameter_type_id, is_required, sort_order, created_at)
-VALUES (3, 6, FALSE, 3, NOW()) ON CONFLICT DO NOTHING;  -- DATA_DOGOVORA
-
-INSERT INTO ho_template_role (ho_template_id, ho_role_type_id, is_required, sort_order, created_at)
-VALUES (3, 1, TRUE,  0, NOW()) ON CONFLICT DO NOTHING;  -- SUPPLIER
-INSERT INTO ho_template_role (ho_template_id, ho_role_type_id, is_required, sort_order, created_at)
-VALUES (3, 5, TRUE,  1, NOW()) ON CONFLICT DO NOTHING;  -- MOL
-
-SELECT setval('ho_template_id_seq', 3);
-
--- ─── Экземпляры ХО — Отгрузка ─────────────────────────────────────────────
-INSERT INTO ho_instance (id, ho_template_id, code, name, doc_date, status, created_at, updated_at)
-VALUES (1, 1, 'OTGR-2026-001', 'Отгрузка ноутбуков Lenovo ООО Техноград', '2026-05-15', 'ACTIVE', NOW(), NOW()) ON CONFLICT DO NOTHING;
-INSERT INTO ho_instance (id, ho_template_id, code, name, doc_date, status, created_at, updated_at)
-VALUES (2, 1, 'OTGR-2026-002', 'Отгрузка смартфонов Samsung ИП Смирнов',  '2026-05-20', 'DRAFT',  NOW(), NOW()) ON CONFLICT DO NOTHING;
-
--- ─── Значения параметров — Отгрузка 1 ────────────────────────────────────
-INSERT INTO ho_instance_value (ho_instance_id, ho_parameter_type_id, string_value,  created_at, updated_at)
-VALUES (1, 1, 'ТН-00001', NOW(), NOW()) ON CONFLICT (ho_instance_id, ho_parameter_type_id) DO NOTHING;
-INSERT INTO ho_instance_value (ho_instance_id, ho_parameter_type_id, numeric_value, created_at, updated_at)
-VALUES (1, 2, 359970,     NOW(), NOW()) ON CONFLICT (ho_instance_id, ho_parameter_type_id) DO NOTHING;
-INSERT INTO ho_instance_value (ho_instance_id, ho_parameter_type_id, numeric_value, created_at, updated_at)
-VALUES (1, 3, 3,           NOW(), NOW()) ON CONFLICT (ho_instance_id, ho_parameter_type_id) DO NOTHING;
-INSERT INTO ho_instance_value (ho_instance_id, ho_parameter_type_id, string_value,  created_at, updated_at)
-VALUES (1, 4, 'Склад №1, СПб', NOW(), NOW()) ON CONFLICT (ho_instance_id, ho_parameter_type_id) DO NOTHING;
-
-INSERT INTO ho_instance_role (ho_instance_id, ho_role_type_id, counterparty, created_at, updated_at)
-VALUES (1, 1, 'ООО «ТехноСклад»', NOW(), NOW()) ON CONFLICT (ho_instance_id, ho_role_type_id) DO NOTHING;
-INSERT INTO ho_instance_role (ho_instance_id, ho_role_type_id, counterparty, created_at, updated_at)
-VALUES (1, 2, 'ООО «Техноград»',  NOW(), NOW()) ON CONFLICT (ho_instance_id, ho_role_type_id) DO NOTHING;
-INSERT INTO ho_instance_role (ho_instance_id, ho_role_type_id, counterparty, created_at, updated_at)
-VALUES (1, 5, 'Петров И.А.',      NOW(), NOW()) ON CONFLICT (ho_instance_id, ho_role_type_id) DO NOTHING;
-
--- ─── Значения параметров — Отгрузка 2 ────────────────────────────────────
-INSERT INTO ho_instance_value (ho_instance_id, ho_parameter_type_id, string_value,  created_at, updated_at)
-VALUES (2, 1, 'ТН-00002', NOW(), NOW()) ON CONFLICT (ho_instance_id, ho_parameter_type_id) DO NOTHING;
-INSERT INTO ho_instance_value (ho_instance_id, ho_parameter_type_id, numeric_value, created_at, updated_at)
-VALUES (2, 2, 239970,     NOW(), NOW()) ON CONFLICT (ho_instance_id, ho_parameter_type_id) DO NOTHING;
-INSERT INTO ho_instance_value (ho_instance_id, ho_parameter_type_id, numeric_value, created_at, updated_at)
-VALUES (2, 3, 2,           NOW(), NOW()) ON CONFLICT (ho_instance_id, ho_parameter_type_id) DO NOTHING;
-INSERT INTO ho_instance_value (ho_instance_id, ho_parameter_type_id, string_value,  created_at, updated_at)
-VALUES (2, 4, 'Склад №2, СПб', NOW(), NOW()) ON CONFLICT (ho_instance_id, ho_parameter_type_id) DO NOTHING;
-
-INSERT INTO ho_instance_role (ho_instance_id, ho_role_type_id, counterparty, created_at, updated_at)
-VALUES (2, 1, 'ООО «ТехноСклад»', NOW(), NOW()) ON CONFLICT (ho_instance_id, ho_role_type_id) DO NOTHING;
-INSERT INTO ho_instance_role (ho_instance_id, ho_role_type_id, counterparty, created_at, updated_at)
-VALUES (2, 2, 'ИП Смирнов В.П.',  NOW(), NOW()) ON CONFLICT (ho_instance_id, ho_role_type_id) DO NOTHING;
-INSERT INTO ho_instance_role (ho_instance_id, ho_role_type_id, counterparty, created_at, updated_at)
-VALUES (2, 5, 'Сидоров К.Л.',     NOW(), NOW()) ON CONFLICT (ho_instance_id, ho_role_type_id) DO NOTHING;
-
--- ─── Экземпляры ХО — ПКО ──────────────────────────────────────────────────
-INSERT INTO ho_instance (id, ho_template_id, code, name, doc_date, status, created_at, updated_at)
-VALUES (3, 2, 'PKO-2026-001', 'ПКО — оплата от ООО Техноград', '2026-05-16', 'ACTIVE', NOW(), NOW()) ON CONFLICT DO NOTHING;
-INSERT INTO ho_instance (id, ho_template_id, code, name, doc_date, status, created_at, updated_at)
-VALUES (4, 2, 'PKO-2026-002', 'ПКО — оплата от ИП Смирнов',   '2026-05-21', 'DRAFT',  NOW(), NOW()) ON CONFLICT DO NOTHING;
-
-INSERT INTO ho_instance_value (ho_instance_id, ho_parameter_type_id, string_value,  created_at, updated_at)
-VALUES (3, 1, 'ПКО-00001', NOW(), NOW()) ON CONFLICT (ho_instance_id, ho_parameter_type_id) DO NOTHING;
-INSERT INTO ho_instance_value (ho_instance_id, ho_parameter_type_id, numeric_value, created_at, updated_at)
-VALUES (3, 2, 359970,      NOW(), NOW()) ON CONFLICT (ho_instance_id, ho_parameter_type_id) DO NOTHING;
-INSERT INTO ho_instance_value (ho_instance_id, ho_parameter_type_id, string_value,  created_at, updated_at)
-VALUES (3, 5, 'Оплата по накладной ТН-00001', NOW(), NOW()) ON CONFLICT (ho_instance_id, ho_parameter_type_id) DO NOTHING;
-
-INSERT INTO ho_instance_role (ho_instance_id, ho_role_type_id, counterparty, created_at, updated_at)
-VALUES (3, 3, 'Кузнецова М.В.', NOW(), NOW()) ON CONFLICT (ho_instance_id, ho_role_type_id) DO NOTHING;
-INSERT INTO ho_instance_role (ho_instance_id, ho_role_type_id, counterparty, created_at, updated_at)
-VALUES (3, 4, 'Андреева Е.Н.', NOW(), NOW())  ON CONFLICT (ho_instance_id, ho_role_type_id) DO NOTHING;
-
-INSERT INTO ho_instance_value (ho_instance_id, ho_parameter_type_id, string_value,  created_at, updated_at)
-VALUES (4, 1, 'ПКО-00002', NOW(), NOW()) ON CONFLICT (ho_instance_id, ho_parameter_type_id) DO NOTHING;
-INSERT INTO ho_instance_value (ho_instance_id, ho_parameter_type_id, numeric_value, created_at, updated_at)
-VALUES (4, 2, 239970,      NOW(), NOW()) ON CONFLICT (ho_instance_id, ho_parameter_type_id) DO NOTHING;
-INSERT INTO ho_instance_value (ho_instance_id, ho_parameter_type_id, string_value,  created_at, updated_at)
-VALUES (4, 5, 'Оплата по накладной ТН-00002', NOW(), NOW()) ON CONFLICT (ho_instance_id, ho_parameter_type_id) DO NOTHING;
-
-INSERT INTO ho_instance_role (ho_instance_id, ho_role_type_id, counterparty, created_at, updated_at)
-VALUES (4, 3, 'Кузнецова М.В.', NOW(), NOW()) ON CONFLICT (ho_instance_id, ho_role_type_id) DO NOTHING;
-INSERT INTO ho_instance_role (ho_instance_id, ho_role_type_id, counterparty, created_at, updated_at)
-VALUES (4, 4, 'Андреева Е.Н.', NOW(), NOW())  ON CONFLICT (ho_instance_id, ho_role_type_id) DO NOTHING;
-
-SELECT setval('ho_instance_id_seq', 4);
+SELECT setval('node_numeric_value_id_seq', GREATEST((SELECT COALESCE(MAX(id), 0) FROM node_numeric_value), 1));

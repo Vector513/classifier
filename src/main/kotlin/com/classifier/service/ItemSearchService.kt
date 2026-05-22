@@ -52,65 +52,72 @@ class ItemSearchService(
     }
 
     /**
-     * Фильтрация узлов по нескольким параметрам одновременно.
-     * Узел попадает в результат только если удовлетворяет ВСЕМ заданным фильтрам.
-     * Поддерживаются числовые диапазоны и точное совпадение по перечислимым параметрам.
+     * Отбор изделий поддерева по произвольному числу условий одновременно.
+     *
+     * Условия могут задаваться как по числовым параметрам (диапазон значений),
+     * так и по перечислимым (требуемое значение). Изделие попадает в результат,
+     * только если удовлетворяет ВСЕМ условиям сразу (логика «И»).
+     *
+     * Множество кандидатов начинается со всех узлов поддерева и последовательно
+     * сужается каждым условием. Если условий не задано вовсе, возвращаются все
+     * изделия раздела — это позволяет просматривать содержимое без фильтрации.
+     *
+     * В результат включаются только изделия — листовые узлы поддерева.
      */
-    fun searchByMultipleFilters(request: MultiFilterRequest): List<NodeWithParametersResponse> {
-        require(request.numericFilters.isNotEmpty() || request.enumFilters.isNotEmpty()) {
-            "Должен быть задан хотя бы один фильтр"
+    fun multiFilter(rootNodeId: Long, request: MultiFilterRequest): List<NodeWithParametersResponse> {
+        if (!nodeRepo.existsById(rootNodeId)) {
+            throw EntityNotFoundException("Узел id=$rootNodeId не найден")
         }
 
-        // Получаем список кандидатов: поддерево или весь классификатор
-        val allNodes = if (request.rootNodeId != null) {
-            val root = nodeRepo.findById(request.rootNodeId).orElseThrow {
-                EntityNotFoundException("Узел id=${request.rootNodeId} не найден")
-            }
-            listOf(root) + nodeRepo.findDescendants(request.rootNodeId)
-        } else {
-            nodeRepo.findAll()
+        val descendants = nodeRepo.findDescendants(rootNodeId)
+        if (descendants.isEmpty()) return emptyList()
+        val descendantIds = descendants.map { it.id }
+
+        // Начинаем со всех узлов поддерева; при отсутствии условий множество не сужается
+        var matched: Set<Long> = descendantIds.toSet()
+
+        // Сужение по числовым условиям
+        for (criterion in request.numericCriteria) {
+            val satisfying = nnvRepo.findByNodeIdsAndParameterId(descendantIds, criterion.parameterId)
+                .filter { value ->
+                    (criterion.minValue == null || value.value >= criterion.minValue) &&
+                    (criterion.maxValue == null || value.value <= criterion.maxValue)
+                }
+                .map { it.classifierNode.id }
+                .toSet()
+            matched = matched intersect satisfying
+            if (matched.isEmpty()) return emptyList()
         }
 
-        if (allNodes.isEmpty()) return emptyList()
-
-        var candidateIds: Set<Long> = allNodes.map { it.id }.toSet()
-
-        // Применяем числовые фильтры (пересечение множеств)
-        for (filter in request.numericFilters) {
-            val values = nnvRepo.findByNodeIdsAndParameterId(candidateIds.toList(), filter.parameterId)
-            val matching = values.filter { nnv ->
-                (filter.minValue == null || nnv.value >= filter.minValue) &&
-                (filter.maxValue == null || nnv.value <= filter.maxValue)
-            }.map { it.classifierNode.id }.toSet()
-            candidateIds = candidateIds.intersect(matching)
-            if (candidateIds.isEmpty()) return emptyList()
-        }
-
-        // Применяем перечислимые фильтры (пересечение множеств)
-        for (filter in request.enumFilters) {
-            val matching = navRepo.findByNodeIdsAndEnumerationIdAndValueId(
-                candidateIds.toList(), filter.enumerationId, filter.valueId
+        // Сужение по перечислимым условиям
+        for (criterion in request.enumCriteria) {
+            val satisfying = navRepo.findByNodeIdsAndEnumerationIdAndValueId(
+                descendantIds, criterion.enumerationId, criterion.valueId
             ).map { it.classifierNode.id }.toSet()
-            candidateIds = candidateIds.intersect(matching)
-            if (candidateIds.isEmpty()) return emptyList()
+            matched = matched intersect satisfying
+            if (matched.isEmpty()) return emptyList()
         }
 
-        // Загружаем полные данные для найденных узлов
-        val matchingNodes = allNodes.filter { it.id in candidateIds }
-        val nodeIds = matchingNodes.map { it.id }
+        // В результат попадают только изделия — листовые узлы поддерева.
+        // Узел является листовым, если ни один другой узел поддерева не считает его родителем.
+        val nonLeafIds = descendants.mapNotNull { it.parent?.id }.toSet()
+        val matchedItems = descendants.filter { it.id in matched && it.id !in nonLeafIds }
+        if (matchedItems.isEmpty()) return emptyList()
 
-        val allEnumAttrs = navRepo.findByClassifierNodeIdIn(nodeIds).groupBy { it.classifierNode.id }
-        val allNumericVals = nnvRepo.findByClassifierNodeIdIn(nodeIds).groupBy { it.classifierNode.id }
+        // Пакетная сборка ответа для отобранных изделий
+        val matchedIds = matchedItems.map { it.id }
+        val enumAttrs = navRepo.findByClassifierNodeIdIn(matchedIds).groupBy { it.classifierNode.id }
+        val numericVals = nnvRepo.findByClassifierNodeIdIn(matchedIds).groupBy { it.classifierNode.id }
 
-        return matchingNodes.map { node ->
+        return matchedItems.map { node ->
             NodeWithParametersResponse(
                 id = node.id,
                 code = node.code,
                 name = node.name,
                 parentId = node.parent?.id,
                 parentName = node.parent?.name,
-                enumerationAttributes = (allEnumAttrs[node.id] ?: emptyList()).map(navService::toResponse),
-                numericValues = (allNumericVals[node.id] ?: emptyList()).map(numService::toValueResponse)
+                enumerationAttributes = (enumAttrs[node.id] ?: emptyList()).map(navService::toResponse),
+                numericValues = (numericVals[node.id] ?: emptyList()).map(numService::toValueResponse)
             )
         }
     }
@@ -120,7 +127,7 @@ class ItemSearchService(
      */
     fun getNodeWithParameters(nodeId: Long): NodeWithParametersResponse {
         val node = nodeRepo.findById(nodeId).orElseThrow {
-            com.classifier.exception.EntityNotFoundException("Узел id=$nodeId не найден")
+            EntityNotFoundException("Узел id=$nodeId не найден")
         }
         val enumAttrs = navRepo.findByClassifierNodeIdOrderByEnumerationId(nodeId)
         val numericVals = nnvRepo.findByClassifierNodeIdOrderByNumericParameterId(nodeId)
