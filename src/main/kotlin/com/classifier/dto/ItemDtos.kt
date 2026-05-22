@@ -52,3 +52,34 @@ data class EnumerationAggregatesResponse(
     @Schema(description = "Всего узлов с заполненным параметром") val totalCount: Long,
     @Schema(description = "Количество по каждому значению") val distribution: List<EnumerationValueCountResponse>
 )
+
+// ─── Фильтрация по нескольким параметрам одновременно ──────────────────────────
+
+@Schema(description = "Условие фильтрации по числовому параметру (диапазон значений)")
+data class NumericFilterCriterion(
+    @Schema(description = "ID числового параметра", example = "2")
+    val parameterId: Long,
+    @Schema(description = "Нижняя граница включительно (null — без ограничения)", example = "3000")
+    val minValue: BigDecimal? = null,
+    @Schema(description = "Верхняя граница включительно (null — без ограничения)", example = "5000")
+    val maxValue: BigDecimal? = null
+)
+
+@Schema(description = "Условие фильтрации по перечислимому параметру (требуемое значение)")
+data class EnumFilterCriterion(
+    @Schema(description = "ID перечисления", example = "1")
+    val enumerationId: Long,
+    @Schema(description = "ID требуемого значения перечисления", example = "3")
+    val valueId: Long
+)
+
+@Schema(
+    description = "Запрос отбора изделий по произвольному числу условий. " +
+                  "Изделие попадает в результат, только если удовлетворяет всем условиям сразу (логика «И»)."
+)
+data class MultiFilterRequest(
+    @Schema(description = "Условия по числовым параметрам")
+    val numericCriteria: List<NumericFilterCriterion> = emptyList(),
+    @Schema(description = "Условия по перечислимым параметрам")
+    val enumCriteria: List<EnumFilterCriterion> = emptyList()
+)

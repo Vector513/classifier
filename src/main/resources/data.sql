@@ -103,9 +103,11 @@ VALUES (28, 'LAPTOPS-LENOVO-TP', 'ThinkPad X1 Carbon', 11, 0, 1, NOW(), NOW()) O
 INSERT INTO classifier_node (id, code, name, parent_id, sort_order, unit_of_measure_id, created_at, updated_at)
 VALUES (29, 'LAPTOPS-LENOVO-YOGA', 'Yoga 9i', 11, 1, 1, NOW(), NOW()) ON CONFLICT DO NOTHING;
 
--- Сброс sequence чтобы новые записи получали id > 29
-SELECT setval('classifier_node_id_seq', 29);
-SELECT setval('unit_of_measure_id_seq', 4);
+-- Синхронизация sequence с фактическим максимумом id.
+-- Берём MAX(id), а не константу, чтобы данные, добавленные через приложение,
+-- не приводили к конфликту первичного ключа при последующих запусках.
+SELECT setval('classifier_node_id_seq', GREATEST((SELECT COALESCE(MAX(id), 0) FROM classifier_node), 1));
+SELECT setval('unit_of_measure_id_seq', GREATEST((SELECT COALESCE(MAX(id), 0) FROM unit_of_measure), 1));
 
 -- ─── Классы перечислений ───────────────────────────────────────────────────
 INSERT INTO enumeration_class (id, code, name, description, created_at, updated_at)
@@ -205,10 +207,10 @@ VALUES (23, 'IOS',     'iOS',     6, 1, NOW(), NOW()) ON CONFLICT DO NOTHING;
 INSERT INTO enumeration_value (id, code, name, enumeration_id, sort_order, created_at, updated_at)
 VALUES (24, 'HARMONY', 'HarmonyOS', 6, 2, NOW(), NOW()) ON CONFLICT DO NOTHING;
 
--- Сброс sequences для новых таблиц
-SELECT setval('enumeration_class_id_seq', 4);
-SELECT setval('enumeration_id_seq', 6);
-SELECT setval('enumeration_value_id_seq', 24);
+-- Синхронизация sequences с фактическим максимумом id
+SELECT setval('enumeration_class_id_seq', GREATEST((SELECT COALESCE(MAX(id), 0) FROM enumeration_class), 1));
+SELECT setval('enumeration_id_seq', GREATEST((SELECT COALESCE(MAX(id), 0) FROM enumeration), 1));
+SELECT setval('enumeration_value_id_seq', GREATEST((SELECT COALESCE(MAX(id), 0) FROM enumeration_value), 1));
 
 -- ═══════════════════════════════════════════════════════════════════════════
 -- Числовые параметры (задание 1.3)
@@ -230,7 +232,7 @@ VALUES (4, 'RAM',          'Объём ОЗУ',            'Объём опер�
 INSERT INTO numeric_parameter (id, code, name, description, min_value, max_value, unit_of_measure_id, created_at, updated_at)
 VALUES (5, 'PRICE',        'Цена',                 'Рекомендуемая розничная цена (руб)', 0.01, 9999999.0, NULL, NOW(), NOW()) ON CONFLICT DO NOTHING;
 
-SELECT setval('numeric_parameter_id_seq', 5);
+SELECT setval('numeric_parameter_id_seq', GREATEST((SELECT COALESCE(MAX(id), 0) FROM numeric_parameter), 1));
 
 -- ─── Назначение числовых параметров на классы (с наследованием) ───────────
 -- Все электронные изделия имеют массу и цену (назначаем на корень ELECTRONICS id=1)
@@ -260,7 +262,7 @@ VALUES (7, 3, 3, NOW()) ON CONFLICT DO NOTHING;  -- LAPTOPS → SCREEN_SIZE
 INSERT INTO node_numeric_parameter (id, classifier_node_id, numeric_parameter_id, created_at)
 VALUES (8, 3, 4, NOW()) ON CONFLICT DO NOTHING;  -- LAPTOPS → RAM
 
-SELECT setval('node_numeric_parameter_id_seq', 8);
+SELECT setval('node_numeric_parameter_id_seq', GREATEST((SELECT COALESCE(MAX(id), 0) FROM node_numeric_parameter), 1));
 
 -- ─── Значения числовых параметров для конкретных моделей (изделий) ────────
 -- iPhone 16 (id=21): масса=170г, батарея=3561мАч, экран=6.1", ОЗУ=8ГБ, цена=89990
@@ -335,4 +337,4 @@ VALUES (29, 27, 4, 18.0,    NOW(), NOW()) ON CONFLICT DO NOTHING;
 INSERT INTO node_numeric_value (id, classifier_node_id, numeric_parameter_id, value, created_at, updated_at)
 VALUES (30, 27, 5, 219990.0,NOW(), NOW()) ON CONFLICT DO NOTHING;
 
-SELECT setval('node_numeric_value_id_seq', 30);
+SELECT setval('node_numeric_value_id_seq', GREATEST((SELECT COALESCE(MAX(id), 0) FROM node_numeric_value), 1));

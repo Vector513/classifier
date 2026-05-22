@@ -70,6 +70,22 @@ public class ItemQueryController {
         return navService.filterByEnumerationValue(classNodeId, enumerationId, valueId);
     }
 
+    // ─── Фильтрация по нескольким параметрам одновременно ─────────────────────
+
+    @PostMapping("/api/v1/nodes/{nodeId}/filter")
+    @Operation(
+        summary = "Отбор изделий по нескольким параметрам одновременно",
+        description = "Возвращает изделия поддерева узла nodeId, удовлетворяющие сразу всем " +
+                      "переданным условиям (логика «И»). Условия задаются по числовым параметрам " +
+                      "(диапазон значений) и по перечислимым параметрам (требуемое значение); " +
+                      "количество условий произвольное."
+    )
+    public List<NodeWithParametersResponse> multiFilter(
+            @PathVariable Long nodeId,
+            @RequestBody MultiFilterRequest request) {
+        return searchService.multiFilter(nodeId, request);
+    }
+
     // ─── Агрегаты по перечислению ─────────────────────────────────────────────
 
     @GetMapping("/api/v1/nodes/{classNodeId}/aggregates/enum/{enumerationId}")
