@@ -23,4 +23,5 @@ Thumbs.db
 .claude/
 
 # Other
-/docs
+/docs/*
+!/docs/bom/

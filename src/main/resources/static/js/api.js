@@ -71,6 +71,22 @@ const del   = (path)         => request('DELETE', path);
 /* ──────────────────────────── Публичный API ─────────────────────────── */
 
 export const api = {
+    bom: {
+        products: () => get('/bom/products'),
+        register: (body) => post('/bom/products', body),
+        specifications: () => get('/bom/specifications'),
+        create: (body) => post('/bom/specifications', body),
+        byId: (id) => get(`/bom/specifications/${id}`),
+        lines: (id) => get(`/bom/specifications/${id}/lines`),
+        localPositions: (id) => get(`/bom/specifications/${id}/local-positions`),
+        putLine: (id, pos, body) => put(`/bom/specifications/${id}/lines/${pos}`, body),
+        exclude: (id, pos) => del(`/bom/specifications/${id}/lines/${pos}`),
+        reset: (id, pos) => del(`/bom/specifications/${id}/overrides/${pos}`),
+        release: (id) => post(`/bom/specifications/${id}/release`),
+        remove: (id) => del(`/bom/specifications/${id}`),
+        explode: (id, quantity) => get(`/bom/specifications/${id}/explosion`, { quantity }),
+        totals: (id, quantity, classId) => get(`/bom/specifications/${id}/totals`, { quantity, classId }),
+    },
 
     /* — Узлы классификатора — */
     nodes: {

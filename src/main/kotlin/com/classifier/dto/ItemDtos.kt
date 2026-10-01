@@ -1,5 +1,6 @@
 package com.classifier.dto
 
+import com.fasterxml.jackson.annotation.JsonAlias
 import io.swagger.v3.oas.annotations.media.Schema
 import java.math.BigDecimal
 import java.time.Instant
@@ -31,31 +32,6 @@ data class NodeWithParametersResponse(
     val enumerationAttributes: List<NodeAttributeValueResponse>,
     @Schema(description = "Значения числовых параметров")
     val numericValues: List<NodeNumericValueResponse>
-)
-
-// ─── Фильтрация по нескольким параметрам ─────────────────────────────────────
-
-@Schema(description = "Фильтр по числовому параметру (диапазон значений)")
-data class NumericFilterCriteria(
-    @Schema(description = "ID числового параметра", example = "1") val parameterId: Long,
-    @Schema(description = "Минимальное значение (включительно), null = без ограничения") val minValue: BigDecimal? = null,
-    @Schema(description = "Максимальное значение (включительно), null = без ограничения") val maxValue: BigDecimal? = null
-)
-
-@Schema(description = "Фильтр по значению перечислимого параметра")
-data class EnumFilterCriteria(
-    @Schema(description = "ID перечисления", example = "1") val enumerationId: Long,
-    @Schema(description = "ID значения перечисления", example = "1") val valueId: Long
-)
-
-@Schema(description = "Запрос фильтрации по нескольким параметрам (числовым и/или перечислимым)")
-data class MultiFilterRequest(
-    @Schema(description = "ID корневого узла для ограничения поиска поддеревом (null = весь классификатор)")
-    val rootNodeId: Long? = null,
-    @Schema(description = "Числовые фильтры — узел должен удовлетворять ВСЕМ")
-    val numericFilters: List<NumericFilterCriteria> = emptyList(),
-    @Schema(description = "Перечислимые фильтры — узел должен удовлетворять ВСЕМ")
-    val enumFilters: List<EnumFilterCriteria> = emptyList()
 )
 
 // ─── Агрегаты по перечислению ─────────────────────────────────────────────────
@@ -103,8 +79,11 @@ data class EnumFilterCriterion(
                   "Изделие попадает в результат, только если удовлетворяет всем условиям сразу (логика «И»)."
 )
 data class MultiFilterRequest(
+    val rootNodeId: Long? = null,
     @Schema(description = "Условия по числовым параметрам")
+    @field:JsonAlias("numericFilters")
     val numericCriteria: List<NumericFilterCriterion> = emptyList(),
     @Schema(description = "Условия по перечислимым параметрам")
+    @field:JsonAlias("enumFilters")
     val enumCriteria: List<EnumFilterCriterion> = emptyList()
 )

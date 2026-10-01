@@ -13,9 +13,11 @@ import * as enumerations from './views/enumerations.js';
 import * as numericParameters from './views/numericParameters.js';
 import * as units from './views/units.js';
 import * as search from './views/search.js';
+import * as bom from './views/bom.js';
 
 /* Сопоставление первого сегмента адреса с разделом приложения */
 const ROUTES = {
+    'bom': { view: bom, nav: '/bom', title: 'Спецификации изделий' },
     '':                  { view: dashboard,         nav: '/',                   title: 'Главная' },
     'tree':              { view: tree,              nav: '/tree',               title: 'Классификатор' },
     'enumerations':      { view: enumerations,      nav: '/enumerations',       title: 'Перечисления' },

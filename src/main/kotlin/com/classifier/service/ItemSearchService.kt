@@ -69,7 +69,21 @@ class ItemSearchService(
             throw EntityNotFoundException("Узел id=$rootNodeId не найден")
         }
 
-        val descendants = nodeRepo.findDescendants(rootNodeId)
+        return filterNodes(nodeRepo.findDescendants(rootNodeId), request)
+    }
+
+    /** Совместимость общего поиска и API отбора внутри выбранного класса. */
+    fun searchByMultipleFilters(request: MultiFilterRequest): List<NodeWithParametersResponse> {
+        val candidates = request.rootNodeId?.let { rootId ->
+            val root = nodeRepo.findById(rootId).orElseThrow {
+                EntityNotFoundException("Узел id=$rootId не найден")
+            }
+            listOf(root) + nodeRepo.findDescendants(rootId)
+        } ?: nodeRepo.findAll()
+        return filterNodes(candidates, request)
+    }
+
+    private fun filterNodes(descendants: List<com.classifier.entity.ClassifierNode>, request: MultiFilterRequest): List<NodeWithParametersResponse> {
         if (descendants.isEmpty()) return emptyList()
         val descendantIds = descendants.map { it.id }
 

@@ -17,6 +17,14 @@ import java.time.Instant
 @RestControllerAdvice
 class GlobalExceptionHandler {
 
+    @ExceptionHandler(org.springframework.dao.DataIntegrityViolationException::class)
+    @ResponseStatus(HttpStatus.CONFLICT)
+    fun handleIntegrity(ex: org.springframework.dao.DataIntegrityViolationException) = ErrorResponse(
+        status = 409, error = "Conflict",
+        message = "Операция нарушает связи или ограничения данных. Проверьте ссылки, уникальность и статус спецификации.",
+        timestamp = Instant.now()
+    )
+
     @ExceptionHandler(EntityNotFoundException::class)
     @ResponseStatus(HttpStatus.NOT_FOUND)
     fun handleNotFound(ex: EntityNotFoundException) = ErrorResponse(
