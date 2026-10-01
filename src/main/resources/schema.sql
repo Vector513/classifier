@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS ho_parameter_type (
                   CHECK (data_type IN ('NUMBER', 'STRING', 'DATE', 'ENUM')),
     min_value     NUMERIC(19,6),
     max_value     NUMERIC(19,6),
-    enum_class_id BIGINT       REFERENCES enumeration_class(id) ON DELETE SET NULL,
+    enumeration_id BIGINT      REFERENCES enumeration(id) ON DELETE RESTRICT,
     created_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
     updated_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW()
 );
@@ -92,6 +92,7 @@ CREATE TABLE IF NOT EXISTS ho_instance_value (
     numeric_value        NUMERIC(19,6),
     string_value         VARCHAR(1000),
     date_value           DATE,
+    enum_value_id        BIGINT REFERENCES enumeration_value(id) ON DELETE RESTRICT,
     created_at           TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
     updated_at           TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
     UNIQUE (ho_instance_id, ho_parameter_type_id)

@@ -167,6 +167,8 @@ function openParamForm(param, units) {
                 description: v.description || null,
                 minValue: v.minValue,
                 maxValue: v.maxValue,
+                clearMinValue: editing && v.minValue == null,
+                clearMaxValue: editing && v.maxValue == null,
                 unitOfMeasureId: v.unitOfMeasureId ? Number(v.unitOfMeasureId) : null,
             };
             try {

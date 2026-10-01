@@ -21,6 +21,7 @@ class NumericParameterService(
     private val paramRepo: NumericParameterRepository,
     private val nodeParamRepo: NodeNumericParameterRepository,
     private val nodeValueRepo: NodeNumericValueRepository,
+    private val catalog: CatalogService,
     private val nodeRepo: ClassifierNodeRepository,
     private val uomRepo: UnitOfMeasureRepository
 ) {
@@ -67,11 +68,11 @@ class NumericParameterService(
         req.name?.let { param.name = it }
         req.description?.let { param.description = it }
 
-        val newMin = req.minValue ?: param.minValue
-        val newMax = req.maxValue ?: param.maxValue
+        val newMin = if (req.clearMinValue) null else req.minValue ?: param.minValue
+        val newMax = if (req.clearMaxValue) null else req.maxValue ?: param.maxValue
         validateRange(newMin, newMax)
-        req.minValue?.let { param.minValue = it }
-        req.maxValue?.let { param.maxValue = it }
+        param.minValue = newMin
+        param.maxValue = newMax
 
         req.unitOfMeasureId?.let { uomId ->
             param.unitOfMeasure = uomRepo.findById(uomId)
@@ -100,12 +101,14 @@ class NumericParameterService(
             EntityNotFoundException("Узел id=$nodeId не найден")
         }
         val param = findParam(paramId)
-        if (nodeParamRepo.existsByClassifierNodeIdAndNumericParameterId(nodeId, paramId)) {
+        val existing = nodeParamRepo.findByClassifierNodeIdOrderByNumericParameterId(nodeId).find { it.numericParameter.id == paramId }
+        if (existing != null && !existing.excluded) {
             throw DuplicateCodeException(
                 "Параметр '${param.code}' уже назначен на узел id=$nodeId"
             )
         }
-        nodeParamRepo.save(NodeNumericParameter(classifierNode = node, numericParameter = param))
+        if (existing != null) { existing.excluded = false; nodeParamRepo.save(existing) }
+        else nodeParamRepo.save(NodeNumericParameter(classifierNode = node, numericParameter = param))
         return InheritedNumericParameterResponse(
             parameterId = param.id,
             parameterCode = param.code,
@@ -130,6 +133,17 @@ class NumericParameterService(
         nodeParamRepo.deleteByClassifierNodeIdAndNumericParameterId(nodeId, paramId)
     }
 
+    /** Исключить параметр для подкласса; сохранённые факты защищены проверкой БД. */
+    fun excludeFromNode(nodeId: Long, paramId: Long) {
+        val node = nodeRepo.findById(nodeId).orElseThrow { EntityNotFoundException("Узел id=$nodeId не найден") }
+        val param = findParam(paramId)
+        val binding = nodeParamRepo.findByClassifierNodeIdOrderByNumericParameterId(nodeId).find { it.numericParameter.id == paramId }
+            ?: NodeNumericParameter(classifierNode = node, numericParameter = param)
+        binding.excluded = true
+        nodeParamRepo.saveAndFlush(binding)
+        catalog.validate()
+    }
+
     /** Получить параметры, непосредственно назначенные на узел (без наследования). */
     @Transactional(readOnly = true)
     fun getOwnParameters(nodeId: Long): List<InheritedNumericParameterResponse> {
@@ -149,7 +163,8 @@ class NumericParameterService(
                     unitOfMeasureName = p.unitOfMeasure?.name,
                     definedAtNodeId = node.id,
                     definedAtNodeName = node.name,
-                    isInherited = false
+                    isInherited = false,
+                    excluded = nnp.excluded
                 )
             }
     }
@@ -164,9 +179,9 @@ class NumericParameterService(
             EntityNotFoundException("Узел id=$nodeId не найден")
         }
         // Предки от корня к текущему узлу (ancestors возвращают от текущего к корню)
-        val ancestors = nodeRepo.findAncestors(nodeId)
+
         // Порядок: корень → ... → предок → сам узел
-        val orderedNodeIds = (ancestors.map { it.id }.reversed()) + nodeId
+        val orderedNodeIds = orderedAncestorIds(nodeId)
 
         val allAssignments = nodeParamRepo.findByClassifierNodeIdIn(orderedNodeIds)
 
@@ -179,7 +194,7 @@ class NumericParameterService(
         }
 
         val currentNode = nodeRepo.findById(nodeId).get()
-        return effectiveMap.values.map { nnp ->
+        return effectiveMap.values.filter { !it.excluded }.map { nnp ->
             val p = nnp.numericParameter
             val defNode = nnp.classifierNode
             InheritedNumericParameterResponse(
@@ -208,6 +223,7 @@ class NumericParameterService(
             EntityNotFoundException("Узел id=$nodeId не найден")
         }
         val param = findParam(req.parameterId)
+        catalog.requireNumericParameter(nodeId, req.parameterId)
         validateValue(req.value, param.minValue, param.maxValue, param.code)
 
         val existing = nodeValueRepo.findByClassifierNodeIdAndNumericParameterId(nodeId, req.parameterId)
@@ -271,7 +287,8 @@ class NumericParameterService(
             count = projection?.getCnt() ?: 0L,
             minValue = projection?.getMinVal(),
             maxValue = projection?.getMaxVal(),
-            avgValue = projection?.getAvgVal()?.setScale(6, RoundingMode.HALF_UP)
+            avgValue = projection?.getAvgVal()?.setScale(6, RoundingMode.HALF_UP),
+            sumValue = projection?.getSumVal()
         )
     }
 
@@ -292,8 +309,9 @@ class NumericParameterService(
             throw EntityNotFoundException("Узел id=$classNodeId не найден")
         }
         findParam(paramId)
+        validateRange(minVal,maxVal)
 
-        val descendants = nodeRepo.findDescendants(classNodeId)
+        val descendants = (nodeRepo.findDescendants(classNodeId) + nodeRepo.findById(classNodeId).get()).filter { it.nodeKind != com.classifier.entity.NodeKind.GROUP }
         val descendantIds = descendants.map { it.id }
         if (descendantIds.isEmpty()) return emptyList()
 
@@ -336,6 +354,17 @@ class NumericParameterService(
     )
 
     // ─── Вспомогательные методы ───────────────────────────────────────────────
+
+    private fun orderedAncestorIds(nodeId: Long): List<Long> {
+        val result = mutableListOf<Long>()
+        var node = nodeRepo.findById(nodeId).orElseThrow()
+        val seen = mutableSetOf<Long>()
+        while (seen.add(node.id)) {
+            result.add(node.id)
+            node = node.parent ?: break
+        }
+        return result.reversed()
+    }
 
     private fun findParam(id: Long) = paramRepo.findById(id).orElseThrow {
         EntityNotFoundException("Числовой параметр id=$id не найден")

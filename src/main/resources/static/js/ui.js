@@ -289,6 +289,7 @@ export function openForm({
     wide = false,
     onSubmit,
     noticeHtml,
+    onMount,
 }) {
     return new Promise((resolve) => {
         let settled = false;
@@ -320,6 +321,8 @@ export function openForm({
 
         const form = ctrl.overlay.querySelector('form');
         const formError = ctrl.overlay.querySelector('[data-form-error]');
+        // Зависимые поля настраиваются до взаимодействия с формой.
+        if (onMount) onMount(form);
 
         const foot = document.createElement('div');
         foot.className = 'modal__foot';

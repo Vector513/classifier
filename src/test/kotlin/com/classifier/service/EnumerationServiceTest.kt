@@ -29,6 +29,8 @@ class EnumerationServiceTest {
     @Mock lateinit var valueRepo: EnumerationValueRepository
     @Mock lateinit var nodeRepo: ClassifierNodeRepository
 
+    @Mock lateinit var catalog: CatalogService
+
     @InjectMocks
     lateinit var service: EnumerationService
 

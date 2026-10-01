@@ -23,7 +23,9 @@ data class UpdateNumericParameterRequest(
     val description: String? = null,
     val minValue: BigDecimal? = null,
     val maxValue: BigDecimal? = null,
-    val unitOfMeasureId: Long? = null
+    val unitOfMeasureId: Long? = null,
+    val clearMinValue: Boolean = false,
+    val clearMaxValue: Boolean = false
 )
 
 @Schema(description = "Числовой параметр изделия")
@@ -78,7 +80,8 @@ data class InheritedNumericParameterResponse(
     @Schema(description = "ID узла, в котором параметр определён") val definedAtNodeId: Long,
     @Schema(description = "Название узла, в котором параметр определён") val definedAtNodeName: String,
     @Schema(description = "true — параметр унаследован от предка, false — определён на самом узле")
-    val isInherited: Boolean
+    val isInherited: Boolean,
+    val excluded: Boolean = false
 )
 
 // ─── Агрегаты ─────────────────────────────────────────────────────────────────
@@ -92,7 +95,8 @@ data class NumericAggregatesResponse(
     val count: Long,
     val minValue: BigDecimal?,
     val maxValue: BigDecimal?,
-    val avgValue: BigDecimal?
+    val avgValue: BigDecimal?,
+    val sumValue: BigDecimal? = null
 )
 
 /** Spring Data projection для нативного запроса агрегатов. */
@@ -100,5 +104,6 @@ interface NumericAggregatesProjection {
     fun getMinVal(): BigDecimal?
     fun getMaxVal(): BigDecimal?
     fun getAvgVal(): BigDecimal?
+    fun getSumVal(): BigDecimal?
     fun getCnt(): Long
 }

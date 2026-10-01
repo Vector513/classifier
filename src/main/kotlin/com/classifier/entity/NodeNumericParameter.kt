@@ -34,6 +34,9 @@ class NodeNumericParameter(
     @JoinColumn(name = "numeric_parameter_id", nullable = false)
     var numericParameter: NumericParameter,
 
+    @Column(nullable = false, columnDefinition = "boolean default false")
+    var excluded: Boolean = false,
+
     @Column(name = "created_at", nullable = false, updatable = false)
     val createdAt: Instant = Instant.now()
 )

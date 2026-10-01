@@ -10,7 +10,7 @@ import {
 } from '../ui.js';
 import { navigate } from '../router.js';
 import { renderNodeDetail } from './nodeDetail.js';
-import { createNodeDialog, editNodeDialog, deleteNodeDialog } from './nodeForms.js';
+import { createNodeDialog, editNodeDialog, deleteNodeDialog, nodeKindLabels } from './nodeForms.js';
 
 // Состояние раздела сохраняется между переходами по узлам
 const state = {
@@ -60,7 +60,7 @@ function allClassIds(nodes, acc = []) {
 export async function render(container, route) {
     selectedId = route.segments[1] ? Number(route.segments[1]) : null;
 
-    if (!state.loaded) {
+    if (!state.loaded || !route.segments[1]) {
         container.innerHTML = `<div class="page">${loadingState('Загрузка классификатора…')}</div>`;
         try {
             await loadData();
@@ -91,8 +91,8 @@ export async function render(container, route) {
                 <div class="page-head__text">
                     <h1>Классификатор изделий</h1>
                     <div class="page-head__sub">
-                        Иерархический справочник: классы группируют изделия, листовые узлы —
-                        конкретные изделия. Выберите узел, чтобы просмотреть и изменить его данные.
+                        Группы объединяют записи; модели описывают доступные исполнения.
+                        Тип указан явно и не меняется из-за числа потомков. Выберите узел, чтобы просмотреть и изменить его данные.
                     </div>
                 </div>
             </div>
@@ -193,7 +193,7 @@ function renderNodes(nodes, depth) {
                        aria-label="${isOpen ? 'Свернуть' : 'Развернуть'}">${icon('chevron-right', 15)}</button>`
             : `<span class="tree-row__toggle tree-row__toggle--leaf"></span>`;
 
-        const iconName = hasChildren ? (isOpen ? 'folder-open' : 'folder') : 'box';
+        const iconName = node.nodeKind==='GROUP' ? (isOpen ? 'folder-open' : 'folder') : 'box';
         const iconCls = hasChildren ? 'tree-row__icon--folder' : 'tree-row__icon--item';
 
         return `
@@ -202,11 +202,11 @@ function renderNodes(nodes, depth) {
                      style="padding-left:${pad}px">
                     ${toggle}
                     <span class="tree-row__icon ${iconCls}">${icon(iconName, 17)}</span>
-                    <span class="tree-row__name" title="${esc(node.name)}">${esc(node.name)}</span>
+                    <span class="tree-row__name" title="${esc(node.name)}">${esc(node.name)}</span><span class="badge badge--neutral" style="font-size:10px">${nodeKindLabels[node.nodeKind]||'Группа'}</span>
                     ${hasChildren ? `<span class="tree-row__count">${node.children.length}</span>` : ''}
                     <span class="tree-row__actions">
                         <button class="icon-btn icon-btn--primary" data-act="row-add" data-id="${node.id}"
-                                title="Добавить дочерний узел">${icon('add-child', 15)}</button>
+                                title="Добавить дочернюю запись" ${node.nodeKind==='PRODUCT'?'disabled':''}>${icon('add-child', 15)}</button>
                         <button class="icon-btn" data-act="row-edit" data-id="${node.id}"
                                 title="Изменить узел">${icon('edit', 15)}</button>
                         <button class="icon-btn icon-btn--danger" data-act="row-delete" data-id="${node.id}"
@@ -297,7 +297,7 @@ function bindTreeEvents() {
 
             if (act === 'row-add') {
                 const created = await createNodeDialog({
-                    parentId: id, parentName: node.name, units: state.units,
+                    parentId: id, parentName: node.name, parentKind:node.nodeKind, units: state.units,
                 });
                 if (created) {
                     state.expanded.add(id);

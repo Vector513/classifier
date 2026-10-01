@@ -241,20 +241,11 @@ async function renderDetail() {
                         <div class="node-detail__meta">
                             <span class="badge badge--code">${esc(enumeration.code)}</span>
                             <span class="badge badge--violet">${esc(enumeration.enumerationClassName)}</span>
-                            ${enumeration.classifierNodeName
-                                ? `<span class="badge badge--blue" title="Перечисление действует для этого узла и его потомков">
-                                     ${icon('tree', 11)} ${esc(enumeration.classifierNodeName)}</span>`
-                                : `<span class="badge badge--amber">${icon('alert-triangle', 11)} не привязано к узлу</span>`}
+                            <span class="badge badge--blue">Общий список · назначений: ${(enumeration.assignedNodeIds||[]).length}</span>
                         </div>
                     </div>
                 </div>
-
-                ${enumeration.classifierNodeName ? '' : `
-                    <div class="notice notice--warning mt-16">
-                        ${icon('alert-triangle', 16)}
-                        <span>Перечисление не привязано к узлу классификатора, поэтому недоступно
-                        для выбора у изделий. Укажите узел через «Изменить».</span>
-                    </div>`}
+                <div class="notice notice--info mt-16"><span>Один список можно назначить нескольким группам и моделям. Назначения и доступные варианты настраиваются в карточке классификатора на вкладке «Варианты и свойства».</span></div>
 
                 <div class="flex-gap flex-wrap mt-16">
                     <button class="btn btn--sm" data-act="edit-enum">${icon('edit', 15)}<span>Изменить</span></button>
@@ -429,7 +420,7 @@ function openCreateEnum(classId) {
         fields: [
             { name: 'code', label: 'Код', required: true, autofocus: true, maxlength: 100, placeholder: 'PHONE-COLORS' },
             { name: 'name', label: 'Название', required: true, full: true, maxlength: 255, placeholder: 'Цвета смартфонов' },
-            { name: 'classifierNodeId', label: 'Привязка к узлу классификатора', type: 'select', full: true,
+            { name: 'classifierNodeId', label: 'Дополнительно назначить записи справочника', type: 'select', full: true,
               options: nodeOptions(), hint: 'Узел, для которого действует перечисление.' },
         ],
         submitLabel: 'Создать перечисление', submitIcon: 'plus',
@@ -462,7 +453,7 @@ function openEditEnum(enumeration) {
         fields: [
             { name: 'code', label: 'Код', required: true, autofocus: true, value: enumeration.code, maxlength: 100 },
             { name: 'name', label: 'Название', required: true, full: true, value: enumeration.name, maxlength: 255 },
-            { name: 'classifierNodeId', label: 'Привязка к узлу классификатора', type: 'select', full: true,
+            { name: 'classifierNodeId', label: 'Дополнительно назначить записи справочника', type: 'select', full: true,
               value: enumeration.classifierNodeId ?? '', options: nodeOptions() },
         ],
         submitLabel: 'Сохранить',

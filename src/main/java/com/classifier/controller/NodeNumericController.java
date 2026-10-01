@@ -62,6 +62,13 @@ public class NodeNumericController {
         service.removeFromNode(nodeId, paramId);
     }
 
+    @PutMapping("/parameters/{paramId}/exclusion")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    @Operation(summary = "Исключить параметр из состава подкласса и его потомков")
+    public void excludeParameter(@PathVariable Long nodeId, @PathVariable Long paramId) {
+        service.excludeFromNode(nodeId, paramId);
+    }
+
     // ─── Значения параметров изделия ──────────────────────────────────────────
 
     @GetMapping("/values")

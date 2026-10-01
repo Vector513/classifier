@@ -16,6 +16,7 @@ import java.time.Instant
 @Transactional
 class NodeAttributeValueService(
     private val navRepo: NodeAttributeValueRepository,
+    private val catalog: CatalogService,
     private val nodeRepo: ClassifierNodeRepository,
     private val enumRepo: EnumerationRepository,
     private val valueRepo: EnumerationValueRepository
@@ -45,6 +46,7 @@ class NodeAttributeValueService(
             )
         }
 
+        catalog.requireEnumChoice(nodeId, request.enumerationId, request.valueId)
         val existing = navRepo.findByClassifierNodeIdAndEnumerationId(nodeId, request.enumerationId)
         return if (existing != null) {
             existing.selectedValue = value
@@ -107,7 +109,7 @@ class NodeAttributeValueService(
         if (!enumRepo.existsById(enumerationId)) {
             throw EntityNotFoundException("Перечисление id=$enumerationId не найдено")
         }
-        val descendants = nodeRepo.findDescendants(classNodeId)
+        val descendants = (nodeRepo.findDescendants(classNodeId) + nodeRepo.findById(classNodeId).get()).filter { it.nodeKind != com.classifier.entity.NodeKind.GROUP }
         if (descendants.isEmpty()) return emptyList()
         val ids = descendants.map { it.id }
         return navRepo.findByNodeIdsAndEnumerationIdAndValueId(ids, enumerationId, valueId)
@@ -128,7 +130,7 @@ class NodeAttributeValueService(
         val enum = enumRepo.findById(enumerationId).orElseThrow {
             EntityNotFoundException("Перечисление id=$enumerationId не найдено")
         }
-        val descendants = nodeRepo.findDescendants(classNodeId)
+        val descendants = (nodeRepo.findDescendants(classNodeId) + nodeRepo.findById(classNodeId).get()).filter { it.nodeKind != com.classifier.entity.NodeKind.GROUP }
         val allValues = if (descendants.isEmpty()) emptyList()
         else navRepo.findByNodeIdsAndEnumerationId(descendants.map { it.id }, enumerationId)
 

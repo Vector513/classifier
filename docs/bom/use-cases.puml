@@ -1,0 +1,26 @@
+@startuml
+left to right direction
+actor "Конструктор" as Author
+actor "Технолог" as Planner
+rectangle "Материальные спецификации" {
+ usecase "Зарегистрировать изделие\nиз общего классификатора" as Register
+ usecase "Создать черновик\nспецификации" as Draft
+ usecase "Добавить / заменить / исключить\nпозицию с нормой расхода" as Edit
+ usecase "Создать изменение или\nмодификацию от базовой версии" as Variant
+ usecase "Утвердить версию" as Release
+ usecase "Проверить циклы\nи ссылки на версии" as Validate
+ usecase "Раскрыть состав\nна всю глубину" as Explode
+ usecase "Рассчитать сводные нормы\nдля класса ресурсов" as Totals
+}
+Author --> Register
+Author --> Draft
+Author --> Edit
+Author --> Variant
+Author --> Release
+Edit ..> Validate : <<include>>
+Release ..> Validate : <<include>>
+Variant ..> Draft : <<include>>
+Planner --> Explode
+Planner --> Totals
+Totals ..> Explode : <<include>>
+@enduml

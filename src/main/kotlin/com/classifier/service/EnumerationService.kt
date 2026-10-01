@@ -23,6 +23,7 @@ class EnumerationService(
     private val classRepo: EnumerationClassRepository,
     private val enumRepo: EnumerationRepository,
     private val valueRepo: EnumerationValueRepository,
+    private val catalog: CatalogService,
     private val nodeRepo: ClassifierNodeRepository
 ) {
 
@@ -108,7 +109,7 @@ class EnumerationService(
                 EntityNotFoundException("Узел классификатора с id=$it не найден")
             }
         }
-        return enumRepo.save(
+        val saved = enumRepo.save(
             Enumeration(
                 code = request.code,
                 name = request.name,
@@ -116,6 +117,9 @@ class EnumerationService(
                 classifierNode = node
             )
         )
+        enumRepo.flush()
+        node?.let { catalog.setBinding(it.id, saved.id, EnumerationBindingRequest()) }
+        return saved
     }
 
     fun updateEnumeration(id: Long, request: UpdateEnumerationRequest): Enumeration {
@@ -133,7 +137,10 @@ class EnumerationService(
             }
         }
         enum.updatedAt = Instant.now()
-        return enumRepo.save(enum)
+        val saved = enumRepo.save(enum)
+        enumRepo.flush()
+        request.classifierNodeId?.let { catalog.setBinding(it, saved.id, EnumerationBindingRequest()) }
+        return saved
     }
 
     fun deleteEnumeration(id: Long) {
@@ -233,37 +240,7 @@ class EnumerationService(
      * При совпадении перечисления (по id) у потомка приоритет над предком.
      */
     @Transactional(readOnly = true)
-    fun getEffectiveEnumerations(nodeId: Long): List<EffectiveEnumerationResponse> {
-        nodeRepo.findById(nodeId).orElseThrow {
-            EntityNotFoundException("Узел id=$nodeId не найден")
-        }
-        val ancestors = nodeRepo.findAncestors(nodeId)
-        // Порядок от корня к текущему узлу — потомок перекрывает предка
-        val orderedIds = (ancestors.map { it.id }.reversed()) + nodeId
-
-        val allEnums = enumRepo.findByClassifierNodeIdIn(orderedIds)
-
-        // Для каждого перечисления берём определение с минимальной глубиной (ближайшее к узлу)
-        val effectiveMap = linkedMapOf<Long, Enumeration>()
-        for (id in orderedIds) {
-            allEnums.filter { it.classifierNode?.id == id }
-                .forEach { effectiveMap[it.id] = it }
-        }
-
-        return effectiveMap.values.map { enum ->
-            val defNode = enum.classifierNode!!
-            EffectiveEnumerationResponse(
-                enumerationId = enum.id,
-                enumerationCode = enum.code,
-                enumerationName = enum.name,
-                enumerationClassName = enum.enumerationClass.name,
-                values = valueRepo.findByEnumerationIdOrderBySortOrder(enum.id).map(::toValueResponse),
-                definedAtNodeId = defNode.id,
-                definedAtNodeName = defNode.name,
-                isInherited = defNode.id != nodeId
-            )
-        }
-    }
+    fun getEffectiveEnumerations(nodeId: Long): List<EffectiveEnumerationResponse> = catalog.effectiveEnumerations(nodeId)
 
     // ── Mappers ───────────────────────────────────────────────────────────────
 
@@ -287,7 +264,8 @@ class EnumerationService(
         classifierNodeName = enum.classifierNode?.name,
         valueCount = enum.values.size,
         createdAt = enum.createdAt,
-        updatedAt = enum.updatedAt
+        updatedAt = enum.updatedAt,
+        assignedNodeIds = catalog.assignedNodeIds(enum.id)
     )
 
     fun toEnumerationWithValuesResponse(enum: Enumeration) = EnumerationWithValuesResponse(
@@ -300,7 +278,8 @@ class EnumerationService(
         classifierNodeName = enum.classifierNode?.name,
         values = enum.values.map { toValueResponse(it) },
         createdAt = enum.createdAt,
-        updatedAt = enum.updatedAt
+        updatedAt = enum.updatedAt,
+        assignedNodeIds = catalog.assignedNodeIds(enum.id)
     )
 
     fun toValueResponse(value: EnumerationValue) = EnumerationValueResponse(

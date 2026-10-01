@@ -40,10 +40,12 @@ interface NodeNumericValueRepository : JpaRepository<NodeNumericValue, Long> {
             MIN(nnv.value)  AS minVal,
             MAX(nnv.value)  AS maxVal,
             AVG(nnv.value)  AS avgVal,
+            SUM(nnv.value)  AS sumVal,
             COUNT(*)        AS cnt
         FROM node_numeric_value nnv
         WHERE nnv.classifier_node_id IN (SELECT id FROM descendants)
           AND nnv.numeric_parameter_id = :paramId
+          AND EXISTS (SELECT 1 FROM classifier_node n WHERE n.id=nnv.classifier_node_id AND n.node_kind<>'GROUP')
     """, nativeQuery = true)
     fun getAggregates(rootNodeId: Long, paramId: Long): NumericAggregatesProjection?
 }

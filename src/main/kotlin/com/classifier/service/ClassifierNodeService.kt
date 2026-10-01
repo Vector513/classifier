@@ -2,6 +2,8 @@ package com.classifier.service
 
 import com.classifier.dto.CreateNodeRequest
 import com.classifier.dto.UpdateNodeRequest
+import com.classifier.entity.NodeKind
+import com.classifier.exception.InvalidSelectionException
 import com.classifier.entity.ClassifierNode
 import com.classifier.exception.CyclicMoveException
 import com.classifier.exception.DuplicateCodeException
@@ -52,6 +54,10 @@ class ClassifierNodeService(
             }
         }
 
+        validateParent(request.nodeKind, parent)
+        val effectiveUnit = unit ?: if (request.nodeKind != NodeKind.GROUP) parent?.unitOfMeasure else null
+        if (request.nodeKind != NodeKind.GROUP && effectiveUnit == null)
+            throw InvalidSelectionException("Укажите единицу измерения для модели или изделия")
         val sortOrder = if (parent != null) {
             nodeRepo.countByParentId(parent.id).toInt()
         } else {
@@ -63,7 +69,8 @@ class ClassifierNodeService(
                 code = request.code,
                 name = request.name,
                 parent = parent,
-                unitOfMeasure = unit,
+                unitOfMeasure = effectiveUnit,
+                nodeKind = request.nodeKind,
                 sortOrder = sortOrder
             )
         )
@@ -87,6 +94,16 @@ class ClassifierNodeService(
             }
         }
 
+        request.nodeKind?.let { kind ->
+            validateParent(kind, node.parent)
+            if (kind == NodeKind.PRODUCT && nodeRepo.countByParentId(id)>0)
+                throw InvalidSelectionException("Сначала перенесите дочерние записи: у изделия не может быть потомков")
+            if (kind == NodeKind.MODEL && nodeRepo.findByParentIdOrderBySortOrder(id).any { it.nodeKind != NodeKind.PRODUCT })
+                throw InvalidSelectionException("Внутри модели допустимы только исполнения")
+            node.nodeKind=kind
+        }
+        if (node.nodeKind != NodeKind.GROUP && node.unitOfMeasure == null)
+            throw InvalidSelectionException("Для модели или изделия нужна единица измерения")
         node.updatedAt = Instant.now()
         return nodeRepo.save(node)
     }
@@ -116,13 +133,22 @@ class ClassifierNodeService(
                     "Невозможно переместить вершину '${node.code}' (id=$id) в собственного потомка (id=$newParentId)"
                 )
             }
-            node.parent = getById(newParentId)
+            val target = getById(newParentId)
+            validateParent(node.nodeKind, target)
+            node.parent = target
         } else {
             node.parent = null
         }
 
         node.updatedAt = Instant.now()
         return nodeRepo.save(node)
+    }
+
+    private fun validateParent(kind: NodeKind, parent: ClassifierNode?) {
+        if (parent?.nodeKind == NodeKind.PRODUCT)
+            throw InvalidSelectionException("В изделие нельзя добавить запись классификатора. Его физические компоненты задаются в разделе составов")
+        if (parent?.nodeKind == NodeKind.MODEL && kind != NodeKind.PRODUCT)
+            throw InvalidSelectionException("Внутри модели создаются только конкретные исполнения")
     }
 
     fun reorder(id: Long, newSortOrder: Int) {

@@ -1,5 +1,6 @@
 package com.classifier.dto
 
+import com.classifier.entity.NodeKind
 import io.swagger.v3.oas.annotations.media.Schema
 import java.time.Instant
 
@@ -14,7 +15,8 @@ data class NodeResponse(
     @Schema(description = "true, если вершина не имеет потомков (листовой узел)") val isTerminal: Boolean,
     @Schema(description = "Количество прямых потомков") val childrenCount: Int,
     @Schema(description = "Дата создания") val createdAt: Instant,
-    @Schema(description = "Дата последнего обновления") val updatedAt: Instant
+    @Schema(description = "Дата последнего обновления") val updatedAt: Instant,
+    val nodeKind: NodeKind = NodeKind.GROUP
 )
 
 @Schema(description = "Вершина классификатора (дерево с потомками)")
@@ -24,5 +26,6 @@ data class TreeNodeResponse(
     @Schema(description = "Название", example = "Смартфоны") val name: String,
     @Schema(description = "Единица измерения") val unitOfMeasure: UnitOfMeasureResponse?,
     @Schema(description = "true, если вершина является листовым узлом") val isTerminal: Boolean,
-    @Schema(description = "Вложенные потомки") val children: List<TreeNodeResponse>
+    @Schema(description = "Вложенные потомки") val children: List<TreeNodeResponse>,
+    val nodeKind: NodeKind = NodeKind.GROUP
 )

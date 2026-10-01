@@ -33,14 +33,12 @@ interface ClassifierNodeRepository : JpaRepository<ClassifierNode, Long> {
     @Query(
         value = """
             WITH RECURSIVE ancestors AS (
-                SELECT * FROM classifier_node WHERE id = (
-                    SELECT parent_id FROM classifier_node WHERE id = :nodeId
-                )
+                SELECT parent_id AS id,1 AS depth,ARRAY[id] AS path FROM classifier_node WHERE id=:nodeId
                 UNION ALL
-                SELECT cn.* FROM classifier_node cn
-                JOIN ancestors a ON cn.id = a.parent_id
-            )
-            SELECT * FROM ancestors ORDER BY id
+                SELECT cn.parent_id,a.depth+1,a.path||cn.id FROM classifier_node cn JOIN ancestors a ON cn.id=a.id
+                WHERE NOT cn.id=ANY(a.path)
+            ) SELECT n.* FROM classifier_node n JOIN ancestors a ON a.id=n.id ORDER BY a.depth DESC
+
         """,
         nativeQuery = true
     )

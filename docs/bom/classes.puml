@@ -1,0 +1,73 @@
+@startuml
+class ClassifierNode {
+ id: Long
+ code: String
+ name: String
+ parent: ClassifierNode
+}
+class UnitOfMeasure {
+ id: Long
+ code: String
+ name: String
+}
+class BomProduct {
+ nodeId: Long
+ kind: ASSEMBLY | PART | MATERIAL | PURCHASED
+}
+class BomSpecification {
+ id: Long
+ revision: Int
+ status: DRAFT | RELEASED
+ description: String
+ createdAt: Instant
+ releasedAt: Instant?
+}
+class BomLine {
+ position: Int
+ quantity: Decimal
+ excluded: Boolean
+}
+class BomController {
+ register()
+ create()
+ putLine()
+ exclude()
+ reset()
+ release()
+ explode()
+ totals()
+}
+class BomService {
+ register()
+ create()
+ putLine()
+ exclude()
+ reset()
+ release()
+ validateCycles()
+}
+class BomRepository {
+ lock()
+ lines(): bom_effective
+ explode(): bom_explode
+ totals(): bom_totals
+}
+ClassifierNode "0..1" <-- "*" ClassifierNode : parent
+ClassifierNode "1" <-- "0..1" BomProduct
+UnitOfMeasure "0..1" <-- "*" ClassifierNode : единица учёта
+BomProduct "1" <-- "*" BomSpecification : изделие
+BomSpecification "0..1" <-- "*" BomSpecification : базовая версия
+BomSpecification "1" *-- "*" BomLine : локальные позиции
+BomProduct "0..1" <-- "*" BomLine : компонент
+BomSpecification "0..1" <-- "*" BomLine : утвержденная версия компонента
+BomController --> BomService
+BomService --> BomRepository
+note bottom of BomLine
+ excluded=true: исключение базовой позиции;
+ иначе: локальная норма или замена по позиции.
+end note
+note bottom of BomRepository
+ SQL-модель через JDBC; существующие
+ узлы и единицы остаются JPA-сущностями.
+end note
+@enduml

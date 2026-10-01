@@ -25,8 +25,7 @@ class Enumeration(
     var enumerationClass: EnumerationClass,
 
     // Optional link to the classifier node this enumeration describes attributes for
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "classifier_node_id")
+    @Transient
     var classifierNode: ClassifierNode? = null,
 
     @OneToMany(mappedBy = "enumeration", cascade = [CascadeType.ALL], orphanRemoval = true, fetch = FetchType.LAZY)

@@ -6,3 +6,7 @@ spring:
   sql:
     init:
       mode: never
+
+classifier:
+  bootstrap:
+    enabled: false

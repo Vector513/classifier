@@ -17,6 +17,30 @@ import java.time.Instant
 @RestControllerAdvice
 class GlobalExceptionHandler {
 
+    @ExceptionHandler(org.springframework.dao.DataIntegrityViolationException::class)
+    @ResponseStatus(HttpStatus.CONFLICT)
+    fun handleIntegrity(ex: org.springframework.dao.DataIntegrityViolationException) = ErrorResponse(
+        status = 409, error = "Conflict",
+        message = constraintMessage(ex),
+        timestamp = Instant.now()
+    )
+
+    private fun constraintMessage(ex: Throwable): String {
+        var cause: Throwable? = ex
+        while (cause != null) {
+            if (cause is java.sql.SQLException && cause.sqlState == "23514")
+                return cause.message.orEmpty().substringBefore('\n').removePrefix("ERROR:").removePrefix("ОШИБКА:").trim()
+            cause = cause.cause
+        }
+        return "Операция нарушает связи данных: запись используется или значение не соответствует ограничению"
+    }
+
+    @ExceptionHandler(org.springframework.transaction.TransactionSystemException::class)
+    @ResponseStatus(HttpStatus.CONFLICT)
+    fun handleTransaction(ex: org.springframework.transaction.TransactionSystemException) = ErrorResponse(
+        status=409, error="Conflict", message=constraintMessage(ex), timestamp=Instant.now()
+    )
+
     @ExceptionHandler(EntityNotFoundException::class)
     @ResponseStatus(HttpStatus.NOT_FOUND)
     fun handleNotFound(ex: EntityNotFoundException) = ErrorResponse(

@@ -11,6 +11,7 @@ class NodeMapper {
 
     fun toResponse(node: ClassifierNode): NodeResponse = NodeResponse(
         id = node.id,
+        nodeKind = node.nodeKind,
         code = node.code,
         name = node.name,
         parentId = node.parent?.id,

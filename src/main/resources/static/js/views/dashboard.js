@@ -11,7 +11,7 @@ function countTree(nodes) {
     const walk = (list) => {
         for (const n of list) {
             total += 1;
-            if (n.isTerminal) terminals += 1;
+            if (n.nodeKind!=='GROUP') terminals += 1;
             if (n.children && n.children.length) walk(n.children);
         }
     };
@@ -67,7 +67,7 @@ export async function render(container, route) {
                     <h1>Обзор справочника</h1>
                     <div class="page-head__sub">
                         Информационная система для ведения иерархического справочника изделий:
-                        классификация, числовые и перечислимые параметры, наследование и анализ данных.
+                        состав изделий, расчёт материалов, характеристики и поиск.
                     </div>
                 </div>
                 <div class="page-head__actions">
@@ -77,6 +77,11 @@ export async function render(container, route) {
                 </div>
             </div>
 
+            <div class="card mb-16"><div class="card__body">
+                <h2>Из чего состоит изделие и сколько нужно материалов?</h2>
+                <p class="mt-16 mb-16">Откройте готовый пример или создайте свой состав. Добавьте компоненты, укажите количество изделий и получите расчёт потребности. Подсказки объяснят каждый шаг.</p>
+                <a class="btn btn--primary" href="#/bom">Открыть составы изделий</a>
+            </div></div>
             <div class="grid grid--stats">
                 ${statCard({
                     tone: 'blue', iconName: 'tree', value: nodeCount,

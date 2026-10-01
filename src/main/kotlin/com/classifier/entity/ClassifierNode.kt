@@ -3,6 +3,8 @@ package com.classifier.entity
 import jakarta.persistence.*
 import java.time.Instant
 
+enum class NodeKind { GROUP, MODEL, PRODUCT }
+
 @Entity
 @Table(
     name = "classifier_node",
@@ -22,6 +24,10 @@ class ClassifierNode(
 
     @Column(nullable = false, length = 255)
     var name: String,
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "node_kind", nullable = false, columnDefinition = "varchar(16) default 'GROUP'")
+    var nodeKind: NodeKind = NodeKind.GROUP,
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "parent_id")

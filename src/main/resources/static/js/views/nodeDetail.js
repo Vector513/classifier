@@ -6,11 +6,11 @@
 import { api, ApiError } from '../api.js';
 import {
     esc, icon, withIcons, fmtNum, fmtDate, plural,
-    openForm, confirmDialog, toast, emptyState, loadingState,
+    openForm, openDialog, confirmDialog, toast, emptyState, loadingState,
 } from '../ui.js';
 import { navigate } from '../router.js';
-import { createNodeDialog, editNodeDialog, moveNodeDialog, deleteNodeDialog } from './nodeForms.js';
-import { filterBuilderHtml, bindFilterBuilder } from './filterBuilder.js';
+import { createNodeDialog, editNodeDialog, moveNodeDialog, deleteNodeDialog, nodeKindLabels } from './nodeForms.js';
+import { filterBuilderHtml, bindFilterBuilder, loadScopeParameters } from './filterBuilder.js';
 
 // Активная вкладка сохраняется между переходами по узлам
 let activeTab = 'overview';
@@ -18,7 +18,7 @@ let activeTab = 'overview';
 const TABS = [
     { id: 'overview',   label: 'Обзор',          icon: 'info' },
     { id: 'numeric',    label: 'Числовые',       icon: 'sliders' },
-    { id: 'enum',       label: 'Перечисления',   icon: 'tags' },
+    { id: 'enum',       label: 'Варианты и свойства',   icon: 'tags' },
     { id: 'analysis',   label: 'Анализ',         icon: 'bar-chart' },
 ];
 
@@ -71,9 +71,7 @@ export async function renderNodeDetail(container, nodeId, ctx) {
                         <h2 class="node-detail__title">${esc(node.name)}</h2>
                         <div class="node-detail__meta">
                             <span class="badge badge--code">${esc(node.code)}</span>
-                            ${isTerminal
-                                ? '<span class="badge badge--green">Изделие (лист)</span>'
-                                : `<span class="badge badge--blue">Класс · ${node.childrenCount} ${plural(node.childrenCount, 'потомок', 'потомка', 'потомков')}</span>`}
+                            <span class="badge badge--blue">${nodeKindLabels[node.nodeKind]}</span>
                             ${node.unitOfMeasure
                                 ? `<span class="badge badge--neutral">${icon('ruler', 12)} ${esc(node.unitOfMeasure.name)}</span>`
                                 : ''}
@@ -82,7 +80,7 @@ export async function renderNodeDetail(container, nodeId, ctx) {
                 </div>
 
                 <div class="flex-gap flex-wrap mt-16">
-                    <button class="btn btn--primary btn--sm" data-act="add-child">
+                    <button class="btn btn--primary btn--sm" data-act="add-child" ${node.nodeKind==='PRODUCT'?'disabled':''}>
                         ${icon('add-child', 15)}<span>Добавить потомка</span>
                     </button>
                     <button class="btn btn--sm" data-act="edit">
@@ -117,7 +115,7 @@ export async function renderNodeDetail(container, nodeId, ctx) {
 
     // — Действия с узлом —
     container.querySelector('[data-act="add-child"]').addEventListener('click', async () => {
-        const created = await createNodeDialog({ parentId: node.id, parentName: node.name, units: ctx.units });
+        const created = await createNodeDialog({ parentId: node.id, parentName: node.name, parentKind:node.nodeKind, units: ctx.units });
         if (created) {
             await ctx.onTreeChanged();
             navigate('/tree/' + created.id);
@@ -193,9 +191,8 @@ async function renderOverviewTab(panel, node, ctx) {
 
             <div class="prop-list__key">Тип</div>
             <div class="prop-list__val">
-                ${node.isTerminal
-                    ? '<span class="badge badge--green">Изделие — листовой узел</span>'
-                    : '<span class="badge badge--blue">Класс — содержит потомков</span>'}
+                <span class="badge badge--blue">${nodeKindLabels[node.nodeKind]}</span>
+
             </div>
 
             <div class="prop-list__key">Единица измерения</div>
@@ -229,7 +226,7 @@ async function renderOverviewTab(panel, node, ctx) {
                 <span class="section-title__count">${children.length}</span>
             </div>
             ${children.length === 0
-                ? `<div class="notice notice--info">${icon('info', 16)}<span>У этого узла нет потомков. Это листовой узел — конкретное изделие.</span></div>`
+                ? `<div class="notice notice--info">${icon('info', 16)}<span>Потомков пока нет. Тип записи задан явно: пустая группа остаётся группой, модель — моделью.</span></div>`
                 : `<div class="child-list">${children.map((c) => `
                     <button class="child-list__item" data-child="${c.id}">
                         <span class="child-list__icon">${icon(c.isTerminal ? 'box' : 'folder', 17)}</span>
@@ -267,12 +264,13 @@ async function renderOverviewTab(panel, node, ctx) {
 /* ═══════════════════════ Вкладка «Числовые параметры» ═══════════════════ */
 
 async function renderNumericTab(panel, node, ctx) {
-    let effective, values, allParams;
+    let effective, values, allParams, own;
     try {
-        [effective, values, allParams] = await Promise.all([
+        [effective, values, allParams, own] = await Promise.all([
             api.nodeNumeric.effectiveParameters(node.id),
             api.nodeNumeric.values(node.id),
             api.numericParams.all(),
+            api.nodeNumeric.ownParameters(node.id),
         ]);
     } catch (err) {
         panel.innerHTML = emptyState({ icon: 'alert-triangle', title: 'Ошибка загрузки', text: err.message });
@@ -301,7 +299,7 @@ async function renderNumericTab(panel, node, ctx) {
             <div class="notice notice--info mb-16">
                 ${icon('git-branch', 16)}
                 <span>Параметры со значком наследования действуют для узла, потому что назначены
-                одному из его родительских классов. Значения вводятся для каждого изделия отдельно.</span>
+                одному из его родительских классов. Можно исключить параметр для этого подкласса и потомков. Чтобы вернуть его, нажмите «Назначить параметр». Сначала очистите сохранённые значения исключаемого параметра.</span>
             </div>
 
             ${effective.length === 0
@@ -311,6 +309,7 @@ async function renderNumericTab(panel, node, ctx) {
                     text: 'Назначьте параметр этому узлу или одному из его родительских классов.',
                 })
                 : effective.map((p) => numericParamRow(p, valueByParam.get(p.parameterId), node)).join('')}
+            ${own.some(p=>p.excluded)?`<p class="text-muted">Исключены здесь: ${own.filter(p=>p.excluded).map(p=>esc(p.parameterName)).join(', ')}. Назначьте параметр повторно, чтобы вернуть его.</p>`:''}
         </div>
     `;
     withIcons(panel);
@@ -365,12 +364,17 @@ async function renderNumericTab(panel, node, ctx) {
             } catch (err) { toast.error(err.message); }
         });
 
+        const excludeBtn = row.querySelector('[data-act="exclude-param"]');
+        if (excludeBtn) excludeBtn.addEventListener('click', async()=>{
+            if (!await confirmDialog({title:'Исключить параметр?',message:'Параметр перестанет действовать здесь и у потомков. Если для него сохранены значения, сначала очистите их.',confirmLabel:'Исключить'})) return;
+            try { await api.nodeNumeric.excludeParameter(node.id,paramId); await reload(); } catch(err) { toast.error(err.message); }
+        });
         const removeBtn = row.querySelector('[data-act="remove-param"]');
         if (removeBtn) removeBtn.addEventListener('click', async () => {
             const ok = await confirmDialog({
                 title: 'Снять параметр с узла?',
                 message: `Параметр «${esc(param.parameterName)}» перестанет действовать для узла «${esc(node.name)}» и его потомков.`,
-                detail: 'Ранее введённые значения этого параметра у изделий не удаляются.',
+                detail: 'Если параметр назначен выше, он продолжит наследоваться. Для полного отключения используйте «Исключить». Сохранённые значения должны оставаться допустимыми.',
                 confirmLabel: 'Снять параметр', danger: true,
             });
             if (!ok) return;
@@ -415,6 +419,7 @@ function numericParamRow(param, value, node) {
                     ? `<button class="icon-btn icon-btn--primary" data-act="set-value" title="Изменить значение">${icon('edit', 16)}</button>
                        <button class="icon-btn icon-btn--danger" data-act="clear-value" title="Удалить значение">${icon('trash', 16)}</button>`
                     : `<button class="btn btn--subtle btn--sm" data-act="set-value">${icon('plus', 14)}<span>Указать значение</span></button>`}
+                <button class="btn btn--subtle btn--sm" data-act="exclude-param" title="Исключить здесь и у потомков">Исключить</button>
                 ${isOwn
                     ? `<button class="icon-btn icon-btn--danger" data-act="remove-param" title="Снять параметр с узла">${icon('unlink', 16)}</button>`
                     : ''}
@@ -461,99 +466,81 @@ function openSetValueDialog(node, param, existing, onDone) {
 /* ═══════════════════════ Вкладка «Перечисления» ═════════════════════════ */
 
 async function renderEnumTab(panel, node, ctx) {
-    let enums, attributes;
+    let enums, attributes, bindings;
     try {
-        [enums, attributes] = await Promise.all([
-            api.items.effectiveEnumerations(node.id),
-            api.attributes.all(node.id),
+        [enums, attributes, bindings] = await Promise.all([
+            api.items.effectiveEnumerations(node.id),api.attributes.all(node.id),api.catalog.bindings(node.id),
         ]);
-    } catch (err) {
-        panel.innerHTML = emptyState({ icon: 'alert-triangle', title: 'Ошибка загрузки', text: err.message });
-        return;
-    }
-
-    const selectedByEnum = new Map(attributes.map((a) => [a.enumerationId, a]));
-    const reload = () => renderEnumTab(panel, node, ctx);
-
-    panel.innerHTML = `
-        <div class="section-block">
-            <div class="section-title">
-                ${icon('tags', 16)}<span>Перечислимые атрибуты</span>
-                <span class="section-title__count">${enums.length}</span>
-            </div>
-            <div class="notice notice--info mb-16">
-                ${icon('info', 16)}
-                <span>Выберите значение перечисления для этого изделия. Перечисления, привязанные
-                к родительскому классу, действуют для всех вложенных узлов.</span>
-            </div>
-            ${enums.length === 0
-                ? emptyState({
-                    icon: 'tags',
-                    title: 'Перечисления недоступны',
-                    text: 'Для этого узла и его родительских классов не задано ни одного перечисления. Создайте их в разделе «Перечисления».',
-                })
-                : enums.map((e) => enumBlock(e, selectedByEnum.get(e.enumerationId))).join('')}
-        </div>
-    `;
-    withIcons(panel);
-
-    panel.querySelectorAll('[data-enum-block]').forEach((block) => {
-        const enumId = Number(block.dataset.enumBlock);
-        block.querySelectorAll('[data-value]').forEach((pill) => {
-            pill.addEventListener('click', async () => {
-                const valueId = Number(pill.dataset.value);
-                const current = selectedByEnum.get(enumId);
-                try {
-                    if (current && current.selectedValueId === valueId) {
-                        await api.attributes.clear(node.id, enumId);
-                        toast.success('Выбор значения снят');
-                    } else {
-                        await api.attributes.select(node.id, { enumerationId: enumId, valueId });
-                        toast.success('Значение выбрано');
-                    }
-                    reload();
-                } catch (err) { toast.error(err.message); }
-            });
-        });
+    } catch(err) { panel.innerHTML=emptyState({icon:'alert-triangle',title:'Не удалось загрузить характеристики',text:err.message});return; }
+    const concrete=node.nodeKind==='PRODUCT';
+    const selectedByEnum=new Map(attributes.map(a=>[a.enumerationId,a]));
+    const own=new Map(bindings.map(b=>[b.enumerationId,b]));
+    const reload=()=>renderEnumTab(panel,node,ctx);
+    panel.innerHTML=`<div class="section-block">
+        <div class="section-title"><span>${concrete?'Свойства конкретного изделия':'Доступные варианты для потомков'}</span><span class="section-title__actions"><button class="btn btn--subtle btn--sm" data-bind-list>Назначить характеристику</button></span></div>
+        <div class="notice notice--info mb-16"><span>${concrete?'Выберите одно значение каждой характеристики. Список уже учитывает ограничения модели и групп.':'У модели может быть несколько допустимых цветов и объёмов памяти. Это варианты выпуска, а не один выбранный цвет. Конкретные значения выбираются в карточках её исполнений.'}</span></div>
+        ${!enums.length?'<p>Характеристики ещё не назначены. Используйте кнопку выше или назначьте их родительской группе.</p>':enums.map(e=>{
+            const selected=selectedByEnum.get(e.enumerationId);
+            return `<div class="param-row" style="display:block" data-enum-block="${e.enumerationId}"><h3>${esc(e.enumerationName)}</h3>
+                <p class="text-muted">${e.isInherited?'Унаследовано от «'+esc(e.definedAtNodeName)+'»':'Назначено здесь'}</p>
+                <div class="option-grid">${e.values.map(v=>concrete?`<button class="option-pill ${selected?.selectedValueId===v.id?'is-selected':''}" data-value="${v.id}" aria-pressed="${selected?.selectedValueId===v.id}">${esc(v.name)}</button>`:`<span class="badge badge--neutral">${esc(v.name)}</span>`).join('')||'<span>Нет допустимых вариантов</span>'}</div>
+                ${concrete?`<p class="mt-16">${selected?'Выбрано: '+esc(selected.selectedValueName):'Значение ещё не выбрано'}</p>`:`${selected?`<p>Ранее сохранённое постоянное свойство: ${esc(selected.selectedValueName)}. Доступные варианты задаются отдельно.</p>`:''}<button class="btn btn--sm mt-16" data-options="${e.enumerationId}">Настроить доступные варианты</button>`}
+                <button class="btn btn--sm mt-16" data-exclude-enum="${e.enumerationId}">Исключить характеристику</button>
+                ${own.has(e.enumerationId)?`<button class="btn btn--sm mt-16" data-unbind="${e.enumerationId}">Снять назначение / ограничение</button>`:''}
+            </div>`;
+        }).join('')}
+        ${bindings.some(b=>b.excluded)?`<p class="text-muted">Исключены здесь: ${bindings.filter(b=>b.excluded).map(b=>esc(b.enumerationName)).join(', ')}. Кнопка «Назначить характеристику» вернёт её.</p>`:''}
+    </div>`;
+    panel.querySelector('[data-bind-list]').onclick=async()=>{
+        try {
+            const classes=await api.enumClasses.all();
+            const lists=(await Promise.all(classes.map(c=>api.enumClasses.enumerations(c.id)))).flat();
+            const available=lists.filter(e=>!own.has(e.id)||own.get(e.id).excluded);
+            if(!available.length){toast.info('Нет новых списков. Создайте характеристику в разделе «Перечисления».');return;}
+            const result=await openForm({title:'Назначить характеристику',subtitle:node.name,fields:[{name:'enumId',label:'Список вариантов',type:'select',required:true,full:true,options:available.map(e=>({value:e.id,label:e.name}))}],onSubmit:async v=>{await api.catalog.assign(node.id,Number(v.enumId));}});
+            if(result!==null)reload();
+        }catch(err){toast.error(err.message);}
+    };
+    panel.querySelectorAll('[data-value]').forEach(btn=>btn.onclick=async()=>{
+        const enumId=Number(btn.closest('[data-enum-block]').dataset.enumBlock), valueId=Number(btn.dataset.value);
+        try {
+            if(selectedByEnum.get(enumId)?.selectedValueId===valueId)await api.attributes.clear(node.id,enumId);
+            else await api.attributes.select(node.id,{enumerationId:enumId,valueId});
+            await reload();
+        }catch(err){toast.error(err.message);}
     });
-}
-
-function enumBlock(enumeration, selected) {
-    return `
-        <div class="param-row" style="flex-direction:column;align-items:stretch;gap:12px" data-enum-block="${enumeration.enumerationId}">
-            <div style="display:flex;align-items:center;gap:12px">
-                <div class="param-row__icon param-row__icon--enum">${icon('tags', 18)}</div>
-                <div class="param-row__main">
-                    <div class="param-row__name">
-                        ${esc(enumeration.enumerationName)}
-                        <span class="badge badge--neutral">${esc(enumeration.enumerationClassName)}</span>
-                        ${enumeration.isInherited
-                            ? `<span class="badge badge--violet">${icon('git-branch', 11)} от «${esc(enumeration.definedAtNodeName)}»</span>`
-                            : '<span class="badge badge--blue">собственное</span>'}
-                    </div>
-                    <div class="param-row__sub">
-                        ${selected
-                            ? `Выбрано: <strong style="color:var(--text)">${esc(selected.selectedValueName)}</strong>`
-                            : 'Значение не выбрано'}
-                    </div>
-                </div>
-            </div>
-            <div class="option-grid">
-                ${enumeration.values.length === 0
-                    ? '<span class="text-soft" style="font-size:12.5px">В перечислении нет значений</span>'
-                    : enumeration.values.map((val) => {
-                        const isSel = selected && selected.selectedValueId === val.id;
-                        return `
-                            <button class="option-pill ${isSel ? 'is-selected' : ''}" data-value="${val.id}"
-                                    title="${isSel ? 'Нажмите, чтобы снять выбор' : 'Выбрать значение'}">
-                                <span class="option-pill__check">${icon('check', 14)}</span>
-                                <span>${esc(val.name)}</span>
-                            </button>
-                        `;
-                    }).join('')}
-            </div>
-        </div>
-    `;
+    panel.querySelectorAll('[data-exclude-enum]').forEach(btn=>btn.onclick=async()=>{
+        if(!await confirmDialog({title:'Исключить характеристику?',message:'Она перестанет действовать здесь и у потомков. Сначала очистите сохранённые значения, если они есть.',confirmLabel:'Исключить'}))return;
+        try{await api.catalog.exclude(node.id,Number(btn.dataset.excludeEnum));await reload();}catch(err){toast.error(err.message);}
+    });
+    panel.querySelectorAll('[data-unbind]').forEach(btn=>btn.onclick=async()=>{
+        if(!await confirmDialog({title:'Снять собственное назначение?',message:'Если характеристика назначена выше, снова будут действовать её родительские ограничения. Сохранённые значения должны оставаться допустимыми.',confirmLabel:'Снять назначение'}))return;
+        try{await api.catalog.unassign(node.id,Number(btn.dataset.unbind));await reload();}catch(err){toast.error(err.message);}
+    });
+    panel.querySelectorAll('[data-options]').forEach(btn=>btn.onclick=async()=>{
+        const id=Number(btn.dataset.options), current=enums.find(e=>e.enumerationId===id);
+        try {
+            // Можно вернуть ранее исключённые варианты, но нельзя выйти за ограничения родителя.
+            const parentEnums=node.parentId?await api.items.effectiveEnumerations(node.parentId):[];
+            const parent=parentEnums.find(e=>e.enumerationId===id);
+            const values=parent?parent.values:await api.enumerations.values(id);
+            const binding=own.get(id);
+            openDialog({title:'Какие варианты доступны?',subtitle:`${node.name} · ${current.enumerationName}`,build:dialog=>{
+                dialog.body.innerHTML=`<p>Отметьте все варианты, в которых выпускается модель. Сохранённые исполнения должны им соответствовать.</p><label class="flex-gap mt-16"><input type="checkbox" data-all ${!binding?.restricted?'checked':''}>Все варианты родителя / общего списка</label><div class="catalog-options mt-16">${values.map(v=>`<label><input type="checkbox" data-option="${v.id}" ${current.values.some(x=>x.id===v.id)?'checked':''}>${esc(v.name)}</label>`).join('')}</div><p data-options-error role="alert"></p>`;
+                const toggle=()=>{dialog.body.querySelectorAll('[data-option]').forEach(c=>c.disabled=dialog.body.querySelector('[data-all]').checked);};
+                dialog.body.querySelector('[data-all]').onchange=toggle;toggle();
+                dialog.addButton({label:'Отмена',onClick:()=>dialog.close()});
+                dialog.addButton({label:'Сохранить варианты',variant:'btn--primary',onClick:async(_,save)=>{
+                    save.disabled=true;
+                    try{
+                        const ids=dialog.body.querySelector('[data-all]').checked?null:[...dialog.body.querySelectorAll('[data-option]:checked')].map(c=>Number(c.dataset.option));
+                        if(ids?.length===0)throw new Error('Выберите хотя бы один вариант.');
+                        await api.catalog.assign(node.id,id,ids);dialog.close();await reload();
+                    }catch(err){dialog.body.querySelector('[data-options-error]').textContent=err.message;save.disabled=false;}
+                }});
+            }});
+        }catch(err){toast.error(err.message);}
+    });
 }
 
 /* ═══════════════════════════ Вкладка «Анализ» ═══════════════════════════ */
@@ -561,10 +548,7 @@ function enumBlock(enumeration, selected) {
 async function renderAnalysisTab(panel, node, ctx) {
     let numericParams, enums;
     try {
-        [numericParams, enums] = await Promise.all([
-            api.nodeNumeric.effectiveParameters(node.id),
-            api.items.effectiveEnumerations(node.id),
-        ]);
+        [numericParams, enums] = await loadScopeParameters(node.id);
     } catch (err) {
         panel.innerHTML = emptyState({ icon: 'alert-triangle', title: 'Ошибка загрузки', text: err.message });
         return;
@@ -574,7 +558,7 @@ async function renderAnalysisTab(panel, node, ctx) {
         <div class="notice notice--info mb-16">
             ${icon('bar-chart', 16)}
             <span>Анализ выполняется по всему поддереву узла «${esc(node.name)}» —
-            учитываются все вложенные изделия.</span>
+            учитываются модели и конкретные изделия, включая выбранную запись. Группы не участвуют. Считаются только заполненные значения; число записей не является складским остатком.</span>
         </div>
 
         <div class="section-block">
@@ -625,6 +609,7 @@ async function renderAnalysisTab(panel, node, ctx) {
                     ${metric('Минимум', fmtNum(a.minValue))}
                     ${metric('Максимум', fmtNum(a.maxValue))}
                     ${metric('Среднее', fmtNum(a.avgValue))}
+                    ${metric('Сумма', fmtNum(a.sumValue))}
                    </div>`;
             withIcons(box);
         } catch (err) { box.innerHTML = errBox(err.message); }

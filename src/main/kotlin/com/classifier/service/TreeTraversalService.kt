@@ -48,6 +48,7 @@ class TreeTraversalService(
         val children = nodeRepo.findByParentIdOrderBySortOrder(node.id)
         return TreeNodeResponse(
             id = node.id,
+            nodeKind = node.nodeKind,
             code = node.code,
             name = node.name,
             unitOfMeasure = node.unitOfMeasure?.let {

@@ -31,6 +31,7 @@ BEGIN
     RETURN v_id;
 END;
 $$;
+^^^
 
 -- Обновить класс перечисления
 CREATE OR REPLACE PROCEDURE update_enumeration_class(
@@ -59,6 +60,7 @@ BEGIN
     WHERE id = p_id;
 END;
 $$;
+^^^
 
 -- Удалить класс перечисления (только если нет привязанных перечислений)
 CREATE OR REPLACE PROCEDURE delete_enumeration_class(p_id BIGINT)
@@ -75,6 +77,7 @@ BEGIN
     DELETE FROM enumeration_class WHERE id = p_id;
 END;
 $$;
+^^^
 
 -- Получить все классы перечислений
 CREATE OR REPLACE FUNCTION get_all_enumeration_classes()
@@ -101,6 +104,7 @@ LANGUAGE sql AS $$
     GROUP BY ec.id
     ORDER BY ec.name;
 $$;
+^^^
 
 -- =============================================================================
 -- 2. СОЗДАНИЕ НОВОГО ПЕРЕЧИСЛЕНИЯ ЗАДАННОГО КЛАССА
@@ -131,13 +135,17 @@ BEGIN
         RAISE EXCEPTION 'Узел классификатора с id=% не найден', p_classifier_node_id;
     END IF;
 
-    INSERT INTO enumeration (code, name, enumeration_class_id, classifier_node_id, created_at, updated_at)
-    VALUES (p_code, p_name, p_enumeration_class_id, p_classifier_node_id, NOW(), NOW())
+    INSERT INTO enumeration (code, name, enumeration_class_id, created_at, updated_at)
+    VALUES (p_code, p_name, p_enumeration_class_id, NOW(), NOW())
     RETURNING id INTO v_id;
 
+    IF p_classifier_node_id IS NOT NULL THEN
+        INSERT INTO node_enumeration(classifier_node_id,enumeration_id) VALUES(p_classifier_node_id,v_id);
+    END IF;
     RETURN v_id;
 END;
 $$;
+^^^
 
 -- Вывод перечислений по классу
 CREATE OR REPLACE FUNCTION get_enumerations_by_class(p_class_id BIGINT)
@@ -167,12 +175,14 @@ LANGUAGE sql AS $$
         e.updated_at
     FROM enumeration e
     JOIN enumeration_class ec ON ec.id = e.enumeration_class_id
-    LEFT JOIN classifier_node cn ON cn.id = e.classifier_node_id
+    LEFT JOIN LATERAL (SELECT classifier_node_id FROM node_enumeration WHERE enumeration_id=e.id AND NOT excluded ORDER BY classifier_node_id LIMIT 1) scope ON true
+    LEFT JOIN classifier_node cn ON cn.id=scope.classifier_node_id
     LEFT JOIN enumeration_value ev ON ev.enumeration_id = e.id
     WHERE e.enumeration_class_id = p_class_id
     GROUP BY e.id, ec.id, ec.name, cn.id, cn.name
     ORDER BY e.name;
 $$;
+^^^
 
 -- =============================================================================
 -- 3. РЕДАКТИРОВАНИЕ СПИСКА ЗНАЧЕНИЙ ПЕРЕЧИСЛЕНИЯ
@@ -215,6 +225,7 @@ BEGIN
     RETURN v_id;
 END;
 $$;
+^^^
 
 -- Обновить значение перечисления
 CREATE OR REPLACE PROCEDURE update_enumeration_value(
@@ -247,6 +258,7 @@ BEGIN
     WHERE id = p_id;
 END;
 $$;
+^^^
 
 -- Удалить значение и сдвинуть sort_order оставшихся
 CREATE OR REPLACE PROCEDURE delete_enumeration_value(p_id BIGINT)
@@ -275,6 +287,7 @@ BEGIN
     UPDATE enumeration SET updated_at = NOW() WHERE id = v_enum_id;
 END;
 $$;
+^^^
 
 -- =============================================================================
 -- 4. ИЗМЕНЕНИЕ ПОРЯДКА ПОЗИЦИЙ В СПИСКЕ ЗНАЧЕНИЙ
@@ -332,6 +345,7 @@ BEGIN
     WHERE id = p_id;
 END;
 $$;
+^^^
 
 -- =============================================================================
 -- 5. ВЫВОД ЗНАЧЕНИЙ ПЕРЕЧИСЛЕНИЯ
@@ -353,6 +367,7 @@ LANGUAGE sql AS $$
     WHERE enumeration_id = p_enumeration_id
     ORDER BY sort_order;
 $$;
+^^^
 
 -- =============================================================================
 -- 6. ВЫБОР ЗНАЧЕНИЯ ПЕРЕЧИСЛЕНИЯ ДЛЯ УЗЛА КЛАССИФИКАТОРА
@@ -392,6 +407,7 @@ BEGIN
         updated_at           = NOW();
 END;
 $$;
+^^^
 
 -- Снять выбор значения перечисления с узла
 CREATE OR REPLACE PROCEDURE clear_enumeration_value(
@@ -411,6 +427,7 @@ BEGIN
     WHERE classifier_node_id = p_node_id AND enumeration_id = p_enum_id;
 END;
 $$;
+^^^
 
 -- Получить все выбранные значения узла
 CREATE OR REPLACE FUNCTION get_node_attributes(p_node_id BIGINT)
@@ -445,6 +462,7 @@ LANGUAGE sql AS $$
     WHERE nav.classifier_node_id = p_node_id
     ORDER BY e.id;
 $$;
+^^^
 
 -- =============================================================================
 -- 7. ЧИСЛОВЫЕ ПАРАМЕТРЫ ИЗДЕЛИЙ (задание 1.3)
@@ -477,6 +495,7 @@ BEGIN
     RETURN v_id;
 END;
 $$;
+^^^
 
 -- Назначить числовой параметр на узел классификатора
 CREATE OR REPLACE PROCEDURE assign_numeric_parameter(
@@ -491,13 +510,15 @@ BEGIN
     IF NOT EXISTS (SELECT 1 FROM numeric_parameter WHERE id = p_param_id) THEN
         RAISE EXCEPTION 'Числовой параметр id=% не найден', p_param_id;
     END IF;
-    IF EXISTS (SELECT 1 FROM node_numeric_parameter WHERE classifier_node_id = p_node_id AND numeric_parameter_id = p_param_id) THEN
+    IF EXISTS (SELECT 1 FROM node_numeric_parameter WHERE classifier_node_id = p_node_id AND numeric_parameter_id = p_param_id AND NOT excluded) THEN
         RAISE EXCEPTION 'Параметр id=% уже назначен на узел id=%', p_param_id, p_node_id;
     END IF;
     INSERT INTO node_numeric_parameter (classifier_node_id, numeric_parameter_id, created_at)
-    VALUES (p_node_id, p_param_id, NOW());
+    VALUES (p_node_id, p_param_id, NOW())
+    ON CONFLICT(classifier_node_id,numeric_parameter_id) DO UPDATE SET excluded=false;
 END;
 $$;
+^^^
 
 -- Установить (upsert) числовое значение параметра для узла (изделия).
 -- Проверяет допустимый диапазон.
@@ -533,6 +554,7 @@ BEGIN
     DO UPDATE SET value = EXCLUDED.value, updated_at = NOW();
 END;
 $$;
+^^^
 
 -- Получить эффективные (собственные + унаследованные) числовые параметры узла
 CREATE OR REPLACE FUNCTION get_effective_numeric_parameters(p_node_id BIGINT)
@@ -587,9 +609,10 @@ LANGUAGE sql AS $$
         node_id,
         node_name,
         (depth > 0) AS is_inherited
-    FROM ranked WHERE rn = 1
+    FROM ranked WHERE rn = 1 AND catalog_numeric_applicable(p_node_id,param_id)
     ORDER BY param_name;
 $$;
+^^^
 
 -- Агрегаты числового параметра по поддереву
 CREATE OR REPLACE FUNCTION get_numeric_aggregates(p_root_id BIGINT, p_param_id BIGINT)
@@ -619,8 +642,10 @@ LANGUAGE sql AS $$
     JOIN numeric_parameter np ON np.id = nnv.numeric_parameter_id
     WHERE nnv.classifier_node_id IN (SELECT id FROM descendants)
       AND nnv.numeric_parameter_id = p_param_id
+      AND EXISTS(SELECT 1 FROM classifier_node n WHERE n.id=nnv.classifier_node_id AND n.node_kind<>'GROUP')
     GROUP BY np.code, np.name;
 $$;
+^^^
 
 -- =============================================================================
 -- 8. ПЕРЕЧИСЛИМЫЕ ПАРАМЕТРЫ — НАСЛЕДОВАНИЕ, ФИЛЬТРАЦИЯ, АГРЕГАТЫ (задание 1.3)
@@ -657,13 +682,15 @@ LANGUAGE sql AS $$
             a.depth,
             ROW_NUMBER() OVER (PARTITION BY e.id ORDER BY a.depth ASC) AS rn
         FROM ancestors a
-        JOIN enumeration e ON e.classifier_node_id = a.id
+        JOIN node_enumeration b ON b.classifier_node_id=a.id
+        JOIN enumeration e ON e.id=b.enumeration_id
         JOIN enumeration_class ec ON ec.id = e.enumeration_class_id
     )
     SELECT enum_id, enum_code, enum_name, class_name, node_id, node_name, (depth > 0)
-    FROM ranked WHERE rn = 1
+    FROM ranked WHERE rn = 1 AND catalog_enum_applicable(p_node_id,enum_id)
     ORDER BY enum_name;
 $$;
+^^^
 
 -- Отбор изделий в поддереве по значению перечислимого параметра
 CREATE OR REPLACE FUNCTION filter_nodes_by_enum(
@@ -699,6 +726,7 @@ LANGUAGE sql AS $$
       AND nav.enumeration_value_id = p_value_id
     ORDER BY cn.name;
 $$;
+^^^
 
 -- Агрегаты по перечислимому параметру в поддереве (распределение по значениям)
 CREATE OR REPLACE FUNCTION get_enum_aggregates(p_root_id BIGINT, p_enumeration_id BIGINT)
@@ -724,9 +752,11 @@ LANGUAGE sql AS $$
     JOIN enumeration_value ev ON ev.id = nav.enumeration_value_id
     WHERE nav.classifier_node_id IN (SELECT id FROM descendants)
       AND nav.enumeration_id = p_enumeration_id
+      AND EXISTS(SELECT 1 FROM classifier_node n WHERE n.id=nav.classifier_node_id AND n.node_kind<>'GROUP')
     GROUP BY ev.id, ev.code, ev.name
     ORDER BY cnt DESC;
 $$;
+^^^
 
 -- Поиск изделий по коду или названию с возвратом значений всех параметров
 CREATE OR REPLACE FUNCTION search_items_with_parameters(p_query VARCHAR)
@@ -777,6 +807,7 @@ LANGUAGE sql AS $$
 
     ORDER BY 3, 5, 6;
 $$;
+^^^
 
 -- Отбор узлов поддерева по диапазону числового параметра
 CREATE OR REPLACE FUNCTION filter_nodes_by_numeric(
@@ -811,6 +842,7 @@ LANGUAGE sql AS $$
       AND (p_max IS NULL OR nnv.value <= p_max)
     ORDER BY nnv.value;
 $$;
+^^^
 
 -- =============================================================================
 -- 9. ХОЗЯЙСТВЕННЫЕ ОПЕРАЦИИ (задание 1.4)
@@ -843,6 +875,7 @@ BEGIN
     RETURN v_id;
 END;
 $$;
+^^^
 
 -- Получить дерево классификатора ХО
 CREATE OR REPLACE FUNCTION get_ho_class_tree()
@@ -864,6 +897,7 @@ LANGUAGE sql AS $$
     )
     SELECT * FROM tree ORDER BY depth, name;
 $$;
+^^^
 
 -- -----------------------------------------------------------------------------
 -- 9.2 Шаблоны ХО
@@ -892,6 +926,7 @@ BEGIN
     RETURN v_id;
 END;
 $$;
+^^^
 
 -- Добавить параметр к шаблону
 CREATE OR REPLACE PROCEDURE add_template_parameter(
@@ -916,6 +951,7 @@ BEGIN
     ON CONFLICT DO NOTHING;
 END;
 $$;
+^^^
 
 -- Удалить параметр из шаблона
 CREATE OR REPLACE PROCEDURE remove_template_parameter(
@@ -932,6 +968,7 @@ BEGIN
     END IF;
 END;
 $$;
+^^^
 
 -- Добавить роль к шаблону
 CREATE OR REPLACE PROCEDURE add_template_role(
@@ -956,6 +993,7 @@ BEGIN
     ON CONFLICT DO NOTHING;
 END;
 $$;
+^^^
 
 -- Получить полный состав шаблона (параметры + роли)
 CREATE OR REPLACE FUNCTION get_template_definition(p_template_id BIGINT)
@@ -979,6 +1017,7 @@ LANGUAGE sql AS $$
     WHERE tr.ho_template_id = p_template_id
     ORDER BY 1, 6;
 $$;
+^^^
 
 -- -----------------------------------------------------------------------------
 -- 9.3 Экземпляры ХО
@@ -1007,6 +1046,7 @@ BEGIN
     RETURN v_id;
 END;
 $$;
+^^^
 
 -- Установить числовое значение параметра экземпляра (с проверкой диапазона)
 CREATE OR REPLACE PROCEDURE set_instance_numeric(
@@ -1034,9 +1074,10 @@ BEGIN
     INSERT INTO ho_instance_value(ho_instance_id, ho_parameter_type_id, numeric_value, created_at, updated_at)
     VALUES (p_instance_id, v_pt_id, p_value, NOW(), NOW())
     ON CONFLICT (ho_instance_id, ho_parameter_type_id)
-    DO UPDATE SET numeric_value = EXCLUDED.numeric_value, updated_at = NOW();
+    DO UPDATE SET numeric_value = EXCLUDED.numeric_value, string_value=NULL, date_value=NULL, enum_value_id=NULL, updated_at = NOW();
 END;
 $$;
+^^^
 
 -- Установить строковое значение параметра экземпляра
 CREATE OR REPLACE PROCEDURE set_instance_string(
@@ -1054,9 +1095,10 @@ BEGIN
     INSERT INTO ho_instance_value(ho_instance_id, ho_parameter_type_id, string_value, created_at, updated_at)
     VALUES (p_instance_id, v_pt_id, p_value, NOW(), NOW())
     ON CONFLICT (ho_instance_id, ho_parameter_type_id)
-    DO UPDATE SET string_value = EXCLUDED.string_value, updated_at = NOW();
+    DO UPDATE SET string_value = EXCLUDED.string_value, numeric_value=NULL, date_value=NULL, enum_value_id=NULL, updated_at = NOW();
 END;
 $$;
+^^^
 
 -- Установить значение-дату параметра экземпляра
 CREATE OR REPLACE PROCEDURE set_instance_date(
@@ -1074,9 +1116,10 @@ BEGIN
     INSERT INTO ho_instance_value(ho_instance_id, ho_parameter_type_id, date_value, created_at, updated_at)
     VALUES (p_instance_id, v_pt_id, p_value, NOW(), NOW())
     ON CONFLICT (ho_instance_id, ho_parameter_type_id)
-    DO UPDATE SET date_value = EXCLUDED.date_value, updated_at = NOW();
+    DO UPDATE SET date_value = EXCLUDED.date_value, numeric_value=NULL, string_value=NULL, enum_value_id=NULL, updated_at = NOW();
 END;
 $$;
+^^^
 
 -- Назначить контрагента на роль в экземпляре
 CREATE OR REPLACE PROCEDURE assign_instance_role(
@@ -1097,6 +1140,7 @@ BEGIN
     DO UPDATE SET counterparty = EXCLUDED.counterparty, updated_at = NOW();
 END;
 $$;
+^^^
 
 -- Изменить статус экземпляра ХО (DRAFT → ACTIVE → CLOSED)
 CREATE OR REPLACE PROCEDURE change_ho_status(
@@ -1117,6 +1161,7 @@ BEGIN
     WHERE id = p_instance_id;
 END;
 $$;
+^^^
 
 -- -----------------------------------------------------------------------------
 -- 9.4 Поиск и просмотр ХО
@@ -1146,6 +1191,7 @@ LANGUAGE sql AS $$
     WHERE t.ho_class_id IN (SELECT id FROM cls)
     ORDER BY i.doc_date DESC NULLS LAST;
 $$;
+^^^
 
 -- Получить все характеристики экземпляра ХО (параметры + роли)
 CREATE OR REPLACE FUNCTION get_ho_instance_details(p_instance_id BIGINT)
@@ -1162,6 +1208,7 @@ LANGUAGE sql AS $$
             CAST(v.numeric_value AS VARCHAR),
             v.string_value,
             CAST(v.date_value AS VARCHAR),
+            (SELECT name FROM enumeration_value WHERE id=v.enum_value_id),
             '—'
         )
     FROM ho_instance_value v
@@ -1177,6 +1224,7 @@ LANGUAGE sql AS $$
     WHERE r.ho_instance_id = p_instance_id
     ORDER BY 1, 2;
 $$;
+^^^
 
 -- Проверить заполненность обязательных полей экземпляра ХО
 CREATE OR REPLACE FUNCTION check_ho_instance_completeness(p_instance_id BIGINT)
@@ -1218,3 +1266,16 @@ LANGUAGE sql AS $$
     WHERE i.id = p_instance_id AND tr.is_required = TRUE
     ORDER BY 1, 3;
 $$;
+^^^
+
+-- Выбранный вариант перечислимого параметра хозяйственной операции.
+CREATE OR REPLACE PROCEDURE set_instance_enum(p_instance_id BIGINT,p_param_code VARCHAR,p_value_id BIGINT)
+LANGUAGE plpgsql AS $$
+DECLARE p_id BIGINT;
+BEGIN
+    SELECT id INTO p_id FROM ho_parameter_type WHERE code=p_param_code AND data_type='ENUM';
+    IF p_id IS NULL THEN RAISE EXCEPTION 'Перечислимый параметр не найден'; END IF;
+    INSERT INTO ho_instance_value(ho_instance_id,ho_parameter_type_id,enum_value_id) VALUES(p_instance_id,p_id,p_value_id)
+    ON CONFLICT(ho_instance_id,ho_parameter_type_id) DO UPDATE SET enum_value_id=EXCLUDED.enum_value_id,numeric_value=NULL,string_value=NULL,date_value=NULL,updated_at=now();
+END $$;
+^^^

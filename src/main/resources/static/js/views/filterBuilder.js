@@ -9,15 +9,21 @@ import { api } from '../api.js';
 import { esc, icon, withIcons, fmtNum, toast, loadingState } from '../ui.js';
 import { navigate } from '../router.js';
 
+/** Параметры всей области, включая определения, добавленные лишь в подклассах. */
+export async function loadScopeParameters(nodeId) {
+    const data = await api.catalog.parameterOptions(nodeId);
+    return [data.numericParameters.map(p=>({...p, parameterId:p.id, parameterCode:p.code, parameterName:p.name})),
+        data.enumerations.map(e=>({...e, enumerationId:e.id, enumerationName:e.name}))];
+}
+
 /**
  * Возвращает HTML конструктора фильтра (без обработчиков).
  * Если параметров нет — возвращает предупреждение.
  */
 export function filterBuilderHtml(numericParams, enums) {
-    if (numericParams.length === 0 && enums.length === 0) {
-        return `<div class="notice notice--warning">${icon('alert-triangle', 16)}` +
-            `<span>Для выбранного раздела не задано параметров, по которым можно выполнить отбор.</span></div>`;
-    }
+    const emptyParametersNotice = numericParams.length === 0 && enums.length === 0
+        ? `<div class="notice notice--info mb-16">${icon('info',16)}<span>В этом разделе нет параметров для отбора. Кнопка «Найти изделия» покажет все изделия раздела.</span></div>` : '';
+
 
     const numericRows = numericParams.map((p) => `
         <div class="filter-crit" data-num-param="${p.parameterId}">
@@ -41,11 +47,13 @@ export function filterBuilderHtml(numericParams, enums) {
                     <option value="">— не учитывать —</option>
                     ${e.values.map((v) => `<option value="${v.id}">${esc(v.name)}</option>`).join('')}
                 </select>
+                <label class="field__hint"><input type="checkbox" data-match-available>Также модели, выпускаемые в этом варианте</label>
             </div>
         </div>
     `).join('');
 
     return `
+        ${emptyParametersNotice}
         <div class="notice notice--info mb-16">
             ${icon('info', 16)}
             <span>Заполните условия по нужным параметрам — будут найдены изделия,
@@ -113,6 +121,7 @@ export function bindFilterBuilder(scopeEl, getNodeId) {
             enumCriteria.push({
                 enumerationId: Number(row.dataset.enumCrit),
                 valueId: Number(val),
+                matchAvailable: row.querySelector('[data-match-available]').checked,
             });
         });
 
@@ -180,10 +189,10 @@ export function filterItemCard(item) {
             <div class="result-card__head">
                 <div class="result-card__icon">${icon('box', 20)}</div>
                 <div style="flex:1;min-width:0">
-                    <div class="result-card__title">${esc(item.name)}</div>
+                    <div class="result-card__title">${esc(item.name)} <span class="badge badge--neutral">${item.nodeKind==='MODEL'?'Модель':'Изделие'}</span></div>
                     <div class="result-card__path">
                         <span class="badge badge--code">${esc(item.code)}</span>
-                        ${item.parentName ? `&nbsp; в составе «${esc(item.parentName)}»` : ''}
+                        ${item.parentName ? `&nbsp; в разделе «${esc(item.parentName)}»` : ''}
                     </div>
                 </div>
                 <span style="color:var(--text-soft);display:flex">${icon('arrow-right', 18)}</span>

@@ -33,6 +33,7 @@ class EnumerationRepositoryTest {
         }
     }
 
+    @Autowired lateinit var jdbc: org.springframework.jdbc.core.JdbcTemplate
     @Autowired lateinit var enumRepo: EnumerationRepository
     @Autowired lateinit var classRepo: EnumerationClassRepository
     @Autowired lateinit var nodeRepo: ClassifierNodeRepository
@@ -43,6 +44,8 @@ class EnumerationRepositoryTest {
 
     @BeforeEach
     fun setUp() {
+        jdbc.execute("CREATE TABLE IF NOT EXISTS node_enumeration(classifier_node_id BIGINT,enumeration_id BIGINT,restrict_values BOOLEAN DEFAULT FALSE,excluded BOOLEAN DEFAULT FALSE,PRIMARY KEY(classifier_node_id,enumeration_id))")
+        jdbc.execute("DELETE FROM node_enumeration")
         enumRepo.deleteAll()
         classRepo.deleteAll()
         nodeRepo.deleteAll()
@@ -54,6 +57,8 @@ class EnumerationRepositoryTest {
         enumRepo.save(Enumeration(code = "PHONE-COLORS", name = "Цвета телефонов", enumerationClass = colorClass, classifierNode = phonesNode))
         enumRepo.save(Enumeration(code = "LAPTOP-COLORS", name = "Цвета ноутбуков", enumerationClass = colorClass))
         enumRepo.save(Enumeration(code = "PHONE-OS", name = "ОС телефонов", enumerationClass = osClass, classifierNode = phonesNode))
+        enumRepo.flush()
+        jdbc.update("INSERT INTO node_enumeration(classifier_node_id,enumeration_id) SELECT ?,id FROM enumeration WHERE code IN ('PHONE-COLORS','PHONE-OS')",phonesNode.id)
     }
 
     @Test

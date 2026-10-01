@@ -27,6 +27,8 @@ class NodeAttributeValueServiceTest {
     @Mock lateinit var enumRepo: EnumerationRepository
     @Mock lateinit var valueRepo: EnumerationValueRepository
 
+    @Mock lateinit var catalog: CatalogService
+
     @InjectMocks
     lateinit var service: NodeAttributeValueService
 

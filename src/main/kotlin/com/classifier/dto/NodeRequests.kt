@@ -1,5 +1,6 @@
 package com.classifier.dto
 
+import com.classifier.entity.NodeKind
 import io.swagger.v3.oas.annotations.media.Schema
 import jakarta.validation.constraints.NotBlank
 import jakarta.validation.constraints.Size
@@ -18,7 +19,9 @@ data class CreateNodeRequest(
     val parentId: Long? = null,
 
     @Schema(description = "ID единицы измерения", example = "1")
-    val unitOfMeasureId: Long? = null
+    val unitOfMeasureId: Long? = null,
+
+    val nodeKind: NodeKind = NodeKind.GROUP
 )
 
 @Schema(description = "Запрос на обновление вершины (все поля опциональны)")
@@ -32,7 +35,9 @@ data class UpdateNodeRequest(
     val name: String? = null,
 
     @Schema(description = "ID новой единицы измерения", example = "1")
-    val unitOfMeasureId: Long? = null
+    val unitOfMeasureId: Long? = null,
+
+    val nodeKind: NodeKind? = null
 )
 
 @Schema(description = "Запрос на перемещение вершины (смена родителя)")

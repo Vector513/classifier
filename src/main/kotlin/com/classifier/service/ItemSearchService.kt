@@ -12,6 +12,7 @@ import org.springframework.transaction.annotation.Transactional
 @Service
 @Transactional(readOnly = true)
 class ItemSearchService(
+    private val catalog: CatalogService,
     private val nodeRepo: ClassifierNodeRepository,
     private val navRepo: NodeAttributeValueRepository,
     private val nnvRepo: NodeNumericValueRepository,
@@ -24,7 +25,7 @@ class ItemSearchService(
      * Для каждого найденного узла подгружаются перечислимые и числовые атрибуты.
      */
     fun searchWithParameters(query: String): List<NodeWithParametersResponse> {
-        val nodes = nodeRepo.searchByQuery(query)
+        val nodes = nodeRepo.searchByQuery(query).filter { it.nodeKind != com.classifier.entity.NodeKind.GROUP }
         if (nodes.isEmpty()) return emptyList()
 
         val nodeIds = nodes.map { it.id }
@@ -41,6 +42,7 @@ class ItemSearchService(
                 id = node.id,
                 code = node.code,
                 name = node.name,
+                nodeKind = node.nodeKind,
                 parentId = node.parent?.id,
                 parentName = node.parent?.name,
                 enumerationAttributes = (allEnumAttrs[node.id] ?: emptyList())
@@ -62,14 +64,28 @@ class ItemSearchService(
      * сужается каждым условием. Если условий не задано вовсе, возвращаются все
      * изделия раздела — это позволяет просматривать содержимое без фильтрации.
      *
-     * В результат включаются только изделия — листовые узлы поддерева.
+     * В результат включаются модели и изделия по явному типу записи.
      */
     fun multiFilter(rootNodeId: Long, request: MultiFilterRequest): List<NodeWithParametersResponse> {
         if (!nodeRepo.existsById(rootNodeId)) {
             throw EntityNotFoundException("Узел id=$rootNodeId не найден")
         }
 
-        val descendants = nodeRepo.findDescendants(rootNodeId)
+        return filterNodes(listOf(nodeRepo.findById(rootNodeId).orElseThrow()) + nodeRepo.findDescendants(rootNodeId), request)
+    }
+
+    /** Совместимость общего поиска и API отбора внутри выбранного класса. */
+    fun searchByMultipleFilters(request: MultiFilterRequest): List<NodeWithParametersResponse> {
+        val candidates = request.rootNodeId?.let { rootId ->
+            val root = nodeRepo.findById(rootId).orElseThrow {
+                EntityNotFoundException("Узел id=$rootId не найден")
+            }
+            listOf(root) + nodeRepo.findDescendants(rootId)
+        } ?: nodeRepo.findAll()
+        return filterNodes(candidates, request)
+    }
+
+    private fun filterNodes(descendants: List<com.classifier.entity.ClassifierNode>, request: MultiFilterRequest): List<NodeWithParametersResponse> {
         if (descendants.isEmpty()) return emptyList()
         val descendantIds = descendants.map { it.id }
 
@@ -93,15 +109,16 @@ class ItemSearchService(
         for (criterion in request.enumCriteria) {
             val satisfying = navRepo.findByNodeIdsAndEnumerationIdAndValueId(
                 descendantIds, criterion.enumerationId, criterion.valueId
-            ).map { it.classifierNode.id }.toSet()
+            ).map { it.classifierNode.id }.toSet().let { selected ->
+                if (criterion.matchAvailable) selected + catalog.modelsAllowing(descendantIds,criterion.enumerationId,criterion.valueId) else selected
+            }
             matched = matched intersect satisfying
             if (matched.isEmpty()) return emptyList()
         }
 
-        // В результат попадают только изделия — листовые узлы поддерева.
+        // В результат попадают модели и изделия; пустые группы исключены.
         // Узел является листовым, если ни один другой узел поддерева не считает его родителем.
-        val nonLeafIds = descendants.mapNotNull { it.parent?.id }.toSet()
-        val matchedItems = descendants.filter { it.id in matched && it.id !in nonLeafIds }
+        val matchedItems = descendants.filter { it.id in matched && it.nodeKind != com.classifier.entity.NodeKind.GROUP }
         if (matchedItems.isEmpty()) return emptyList()
 
         // Пакетная сборка ответа для отобранных изделий
@@ -114,6 +131,7 @@ class ItemSearchService(
                 id = node.id,
                 code = node.code,
                 name = node.name,
+                nodeKind = node.nodeKind,
                 parentId = node.parent?.id,
                 parentName = node.parent?.name,
                 enumerationAttributes = (enumAttrs[node.id] ?: emptyList()).map(navService::toResponse),
@@ -136,6 +154,7 @@ class ItemSearchService(
             id = node.id,
             code = node.code,
             name = node.name,
+            nodeKind = node.nodeKind,
             parentId = node.parent?.id,
             parentName = node.parent?.name,
             enumerationAttributes = enumAttrs.map(navService::toResponse),

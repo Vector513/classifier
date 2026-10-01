@@ -1,9 +1,12 @@
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+
 plugins {
     alias(libs.plugins.spring.boot)
     alias(libs.plugins.spring.dependency.management)
     alias(libs.plugins.kotlin.jvm)
     alias(libs.plugins.kotlin.spring)
     alias(libs.plugins.kotlin.jpa)
+    kotlin("plugin.lombok") version "2.4.20"
 }
 
 group = "com.classifier"
@@ -27,9 +30,11 @@ dependencies {
     testAnnotationProcessor(libs.lombok)
 
     testImplementation(libs.spring.boot.starter.test)
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
     testImplementation(libs.testcontainers.postgresql)
     testImplementation(libs.testcontainers.junit)
     testImplementation(libs.mockito.kotlin)
+    testImplementation(kotlin("test"))
 }
 
 java {
@@ -37,18 +42,15 @@ java {
     targetCompatibility = JavaVersion.VERSION_17
 }
 
-tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile> {
-    kotlinOptions {
-        freeCompilerArgs = listOf("-Xjsr305=strict")
-        jvmTarget = "17"
+kotlin {
+    jvmToolchain(17)
+
+    compilerOptions {
+        freeCompilerArgs.add("-Xjsr305=strict")
+        jvmTarget.set(JvmTarget.JVM_17)
     }
 }
 
-tasks.withType<Test> {
+tasks.withType<Test>().configureEach {
     useJUnitPlatform()
-}
-
-tasks.withType<JavaCompile> {
-    sourceCompatibility = "17"
-    targetCompatibility = "17"
 }

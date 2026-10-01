@@ -5,3 +5,8 @@ build/
 .git/
 PLAN.md
 docs/
+
+backups/
+.kotlin/
+*.dump
+*.log

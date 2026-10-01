@@ -7,7 +7,7 @@
 import { api, ApiError } from '../api.js';
 import { esc, icon, withIcons, plural, loadingState, emptyState } from '../ui.js';
 import { navigate } from '../router.js';
-import { filterBuilderHtml, bindFilterBuilder, filterItemCard } from './filterBuilder.js';
+import { filterBuilderHtml, bindFilterBuilder, filterItemCard, loadScopeParameters } from './filterBuilder.js';
 
 let containerEl = null;
 // Выбранная область поиска для фильтра сохраняется между переходами
@@ -17,7 +17,7 @@ let filterScopeId = null;
 function flattenClasses(nodes, depth = 0, acc = []) {
     for (const n of nodes) {
         const hasChildren = n.children && n.children.length > 0;
-        if (hasChildren) acc.push({ id: n.id, name: n.name, depth });
+        if (n.nodeKind !== 'PRODUCT') acc.push({ id: n.id, name: n.name, depth });
         if (hasChildren) flattenClasses(n.children, depth + 1, acc);
     }
     return acc;
@@ -179,10 +179,7 @@ async function loadFilter(filterArea) {
     filterArea.innerHTML = loadingState('Загрузка параметров раздела…');
     let numericParams, enums;
     try {
-        [numericParams, enums] = await Promise.all([
-            api.nodeNumeric.effectiveParameters(filterScopeId),
-            api.items.effectiveEnumerations(filterScopeId),
-        ]);
+        [numericParams, enums] = await loadScopeParameters(filterScopeId);
     } catch (err) {
         filterArea.innerHTML = `<div class="notice notice--warning">${icon('alert-triangle', 16)}<span>${esc(err.message)}</span></div>`;
         withIcons(filterArea);

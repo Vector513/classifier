@@ -1,0 +1,51 @@
+@startuml
+entity classifier_node {
+ * id : bigint <<PK>>
+ --
+ code : varchar <<UNIQUE>>
+ name : varchar
+ node_kind : GROUP | MODEL | PRODUCT
+ unit_of_measure_id : bigint <<FK>>
+ parent_id : bigint <<FK>>
+}
+entity unit_of_measure {
+ * id : bigint <<PK>>
+ --
+ code : varchar <<UNIQUE>>
+ name : varchar
+}
+entity bom_product {
+ * node_id : bigint <<PK, FK>>
+ --
+ kind : varchar
+}
+entity bom_specification {
+ * id : bigint <<PK>>
+ --
+ product_id : bigint <<FK>>
+ revision : integer
+ base_id : bigint <<FK, NULL>>
+ status : varchar
+ description : varchar
+ created_at : timestamptz
+ released_at : timestamptz <<NULL>>
+ UNIQUE(product_id, revision)
+}
+entity bom_line {
+ * specification_id : bigint <<PK, FK>>
+ * position : integer <<PK>>
+ --
+ component_id : bigint <<FK, NULL>>
+ component_specification_id : bigint <<FK, NULL>>
+ quantity : numeric(19,6) <<NULL>>
+ excluded : boolean
+}
+classifier_node ||--o| bom_product
+classifier_node |o--o{ classifier_node
+unit_of_measure |o--o{ classifier_node
+bom_product ||--o{ bom_specification
+bom_specification |o--o{ bom_specification : base_id
+bom_specification ||--o{ bom_line : specification_id
+bom_product |o--o{ bom_line : component_id
+bom_specification |o--o{ bom_line : component_specification_id
+@enduml

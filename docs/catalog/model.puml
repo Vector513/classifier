@@ -1,0 +1,113 @@
+@startuml
+hide circle
+entity classifier_node {
+ * id : bigint <<PK>>
+ code : varchar <<UNIQUE>>
+ name : varchar
+ node_kind : GROUP | MODEL | PRODUCT
+ parent_id : bigint <<FK>>
+ unit_of_measure_id : bigint <<FK>>
+}
+entity unit_of_measure {
+ * id : bigint <<PK>>
+ code : varchar <<UNIQUE>>
+ name : varchar
+}
+entity enumeration_class {
+ * id : bigint <<PK>>
+ code : varchar <<UNIQUE>>
+ name : varchar
+}
+entity enumeration {
+ * id : bigint <<PK>>
+ code : varchar <<UNIQUE>>
+ enumeration_class_id : bigint <<FK>>
+}
+entity enumeration_value {
+ * id : bigint <<PK>>
+ enumeration_id : bigint <<FK>>
+ code : varchar
+ UNIQUE(enumeration_id,code)
+}
+entity node_enumeration {
+ * classifier_node_id : bigint <<PK,FK>>
+ * enumeration_id : bigint <<PK,FK>>
+ restrict_values : boolean
+ excluded : boolean
+}
+entity node_enumeration_option {
+ * classifier_node_id : bigint <<PK,FK>>
+ * enumeration_id : bigint <<PK,FK>>
+ * enumeration_value_id : bigint <<PK,FK>>
+}
+entity node_attribute_value {
+ * id : bigint <<PK>>
+ classifier_node_id : bigint <<FK>>
+ enumeration_id : bigint <<FK>>
+ enumeration_value_id : bigint <<FK>>
+ UNIQUE(classifier_node_id,enumeration_id)
+}
+entity numeric_parameter {
+ * id : bigint <<PK>>
+ min_value : decimal
+ max_value : decimal
+ unit_of_measure_id : bigint <<FK>>
+}
+entity node_numeric_parameter {
+ * id : bigint <<PK>>
+ classifier_node_id : bigint <<FK>>
+ numeric_parameter_id : bigint <<FK>>
+ excluded : boolean
+}
+entity node_numeric_value {
+ * id : bigint <<PK>>
+ classifier_node_id : bigint <<FK>>
+ numeric_parameter_id : bigint <<FK>>
+ value : decimal
+}
+entity bom_product {
+ * node_id : bigint <<PK,FK>>
+ kind : ASSEMBLY | PART | MATERIAL | PURCHASED
+}
+entity bom_specification {
+ * id : bigint <<PK>>
+ product_id : bigint <<FK>>
+ base_id : bigint <<FK>>
+ revision : integer
+ status : DRAFT | RELEASED
+}
+entity bom_line {
+ * specification_id : bigint <<PK,FK>>
+ * position : integer <<PK>>
+ component_id : bigint <<FK>>
+ component_specification_id : bigint <<FK>>
+ quantity : decimal
+ excluded : boolean
+}
+classifier_node |o--o{ classifier_node : parent
+unit_of_measure ||--o{ classifier_node
+unit_of_measure |o--o{ numeric_parameter
+enumeration_class ||--o{ enumeration
+enumeration ||--o{ enumeration_value
+classifier_node ||--o{ node_enumeration
+enumeration ||--o{ node_enumeration
+node_enumeration ||--o{ node_enumeration_option
+enumeration_value ||--o{ node_enumeration_option
+classifier_node ||--o{ node_attribute_value
+enumeration_value ||--o{ node_attribute_value
+classifier_node ||--o{ node_numeric_parameter
+numeric_parameter ||--o{ node_numeric_parameter
+classifier_node ||--o{ node_numeric_value
+numeric_parameter ||--o{ node_numeric_value
+classifier_node ||--o| bom_product
+bom_product ||--o{ bom_specification
+bom_specification |o--o{ bom_specification : base
+bom_specification ||--o{ bom_line
+bom_product |o--o{ bom_line
+bom_specification |o--o{ bom_line : child version
+note bottom of node_enumeration_option
+Доступные варианты модели.
+Выбранное значение исполнения —
+в node_attribute_value.
+end note
+@enduml

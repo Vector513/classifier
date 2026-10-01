@@ -106,7 +106,8 @@ data class EnumerationResponse(
     @Schema(description = "Название узла классификатора") val classifierNodeName: String?,
     @Schema(description = "Количество значений") val valueCount: Int,
     @Schema(description = "Дата создания") val createdAt: Instant,
-    @Schema(description = "Дата последнего обновления") val updatedAt: Instant
+    @Schema(description = "Дата последнего обновления") val updatedAt: Instant,
+    val assignedNodeIds: List<Long> = emptyList()
 )
 
 @Schema(description = "Перечисление со списком значений")
@@ -120,7 +121,8 @@ data class EnumerationWithValuesResponse(
     @Schema(description = "Название узла классификатора") val classifierNodeName: String?,
     @Schema(description = "Значения перечисления в порядке сортировки") val values: List<EnumerationValueResponse>,
     @Schema(description = "Дата создания") val createdAt: Instant,
-    @Schema(description = "Дата последнего обновления") val updatedAt: Instant
+    @Schema(description = "Дата последнего обновления") val updatedAt: Instant,
+    val assignedNodeIds: List<Long> = emptyList()
 )
 
 @Schema(description = "Значение перечисления")

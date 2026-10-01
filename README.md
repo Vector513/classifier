@@ -47,7 +47,7 @@ http://localhost:8082/swagger-ui.html
 ### Запуск целиком в Docker (БД + приложение)
 
 ```bash
-docker-compose up --build
+docker compose up -d --build
 ```
 
 > При запуске через Docker приложение доступно на порту **8080** (маппинг в `docker-compose.yml`).
@@ -343,56 +343,20 @@ src/test/kotlin/com/classifier/
 
 ## Модель данных
 
-```
-unit_of_measure              classifier_node
-├── id (PK)                  ├── id (PK)
-├── code (UNIQUE)            ├── code (UNIQUE)
-└── name                     ├── name
-                             ├── parent_id (FK → self)
-                             ├── sort_order
-                             ├── unit_of_measure_id (FK)
-                             ├── created_at
-                             └── updated_at
+| Часть | Сущности |
+|---|---|
+| Справочник | classifier_node (GROUP / MODEL / PRODUCT), unit_of_measure |
+| Списки вариантов | enumeration_class, enumeration, enumeration_value |
+| Применимость и варианты моделей | node_enumeration, node_enumeration_option |
+| Выбранные свойства | node_attribute_value |
+| Числовые характеристики | numeric_parameter, node_numeric_parameter, node_numeric_value |
+| Составы | bom_product, bom_specification, bom_line |
+| Хозяйственные операции | ho_class, ho_parameter_type, ho_role_type, ho_template, ho_template_parameter, ho_template_role, ho_instance, ho_instance_value, ho_instance_role |
+| История миграции | schema_migration |
 
-enumeration_class            enumeration                  enumeration_value
-├── id (PK)                  ├── id (PK)                  ├── id (PK)
-├── code (UNIQUE)            ├── code (UNIQUE)            ├── code
-├── name                     ├── name                     ├── name
-├── description              ├── enumeration_class_id(FK) ├── enumeration_id (FK)
-├── created_at               ├── classifier_node_id (FK)  ├── sort_order
-└── updated_at               ├── created_at               ├── created_at
-                             └── updated_at               └── updated_at
+Тип записи не зависит от наличия детей. Модель может иметь несколько допустимых вариантов характеристики; у конкретного исполнения выбирается одно значение. Назначения характеристик наследуются по родителям, сохранённые значения проверяются по применимости, диапазонам и допустимым вариантам. Физический состав задаётся отдельно от дерева классификации.
 
-node_attribute_value
-├── id (PK)
-├── classifier_node_id (FK)
-├── enumeration_id (FK)
-├── enumeration_value_id (FK)
-├── created_at
-├── updated_at
-└── UNIQUE(classifier_node_id, enumeration_id)
-
-numeric_parameter             node_numeric_parameter       node_numeric_value
-├── id (PK)                  ├── id (PK)                  ├── id (PK)
-├── code (UNIQUE)            ├── classifier_node_id (FK)  ├── classifier_node_id (FK)
-├── name                     ├── numeric_parameter_id(FK) ├── numeric_parameter_id(FK)
-├── description              └── UNIQUE(node, param)      ├── value (NUMERIC 19,6)
-├── min_value (nullable)                                  ├── created_at
-├── max_value (nullable)                                  ├── updated_at
-├── unit_of_measure_id (FK)                               └── UNIQUE(node, param)
-├── created_at
-└── updated_at
-```
-
-**Паттерн хранения дерева:** Adjacency List + PostgreSQL `WITH RECURSIVE` CTE.
-
-**Наследование параметров:** при запросе эффективных параметров узла рекурсивно обходятся все предки — параметры, назначенные родителю, автоматически наследуются потомками. Поле `isInherited` в ответе указывает источник.
-
-**Валидация диапазона:** при установке числового значения проверяется попадание в `[minValue, maxValue]`. Нарушение возвращает HTTP 422.
-
-**Агрегаты:** реализованы через нативные CTE-запросы к PostgreSQL — `min`, `max`, `avg`, `count` для числовых параметров и подсчёт по значениям для перечислений.
-
----
+[Подробный разбор изменений и правил](docs/catalog/README.md), [актуальная ER-модель](docs/catalog/model.puml).
 
 ## Начальные данные (`data.sql`)
 
@@ -425,3 +389,18 @@ GET /api/v1/nodes/4/aggregates/enum/2
 # Поиск изделий по названию
 GET /api/v1/items/search?query=Galaxy
 ```
+
+
+## Практическая работа 2.1 — материальные спецификации
+
+Добавлен раздел **Составы изделий** (`#/bom`): типы изделий, нормы расхода, черновики и утвержденные версии, наследуемые модификации, полное раскрытие состава и сводные нормы по классу ресурсов.
+
+[Описание модели, API, SQL-пример и тестовые сценарии](docs/bom/README.md). SQL-расширение `bom.sql` загружается автоматически; демонстрационные данные `bom-demo.sql` автоматически загружаются при первом запуске через Docker Compose и не заменяют существующий справочник.
+
+При первом запуске Docker Compose на новой БД примеры спецификаций загружаются автоматически. Откройте `http://localhost:8080/#/bom`: там будут базовый корпус, усиленная модификация и учебный черновик. Повторный запуск сохраняет пользовательские изменения; данные хранятся в volume `pgdata`. Для отключения примеров установите `CLASSIFIER_DEMO_ENABLED: "false"` в Compose.
+
+В разделе «Составы изделий» доступны инструкция для первого знакомства, словарь терминов, сравнение изменений и расчёт потребности. [Сценарии проверки и скриншоты](docs/bom/README.md#обновление-интерфейса-и-проверка-04112026).
+
+## Уточнённая модель классификатора
+
+Записи имеют явный тип «Группа», «Модель» или «Изделие / исполнение». Для модели задаётся набор допустимых вариантов, для исполнения выбирается конкретное значение. Общие списки можно назначать нескольким группам. Единица изделия хранится в одном месте. [Анализ недостатков, новая схема, перенос данных и примеры](docs/catalog/README.md). Обновление запускается автоматически при старте приложения; предварительная резервная копия находится в `backups/`.

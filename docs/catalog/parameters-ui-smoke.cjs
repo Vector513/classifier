@@ -1,0 +1,75 @@
+// Только отдельный тестовый экземпляр: скрипт меняет учебные настройки и восстанавливает их.
+const assert=require('node:assert/strict');
+const path=require('node:path');
+const {chromium}=require(process.env.PLAYWRIGHT_MODULE||'playwright');
+const url=process.env.BOM_TEST_URL;
+if(!url||new URL(url).port==='8080')throw new Error('Укажите отдельный тестовый экземпляр через BOM_TEST_URL (не 8080).');
+(async()=>{
+ const browser=await chromium.launch({headless:true});
+ const page=await browser.newPage({viewport:{width:1500,height:1100}});
+ page.setDefaultTimeout(60000);
+ const errors=[];page.on('pageerror',e=>errors.push(e.message));
+ const get=async p=>{const r=await page.request.get(url+'/api/v1'+p);assert(r.ok(),await r.text());return r.json();};
+ const flat=ns=>ns.flatMap(n=>[n,...flat(n.children||[])]);
+ let kits,length,surface,original;
+ try{
+  const nodes=flat(await get('/nodes/tree'));
+  const root=nodes.find(n=>n.code==='DEMO-PARAMETERS');kits=nodes.find(n=>n.code==='DEMO-KITS');
+  const blank=nodes.find(n=>n.code==='DEMO-BLANK-MATTE'),empty=nodes.find(n=>n.code==='DEMO-EMPTY-GROUP');
+  original=(await get('/numeric-parameters')).find(p=>p.code==='DEMO-LENGTH');length=original.id;
+  const options=await get(`/nodes/${root.id}/parameter-options`);surface=options.enumerations.find(e=>e.code==='DEMO-SURFACE').id;
+  assert.equal(options.numericParameters.length,2);
+  // Восстанавливаем учебную фикстуру после возможного прерывания предыдущего запуска.
+  assert((await page.request.put(url+`/api/v1/nodes/${kits.id}/numeric/parameters/${length}/exclusion`)).ok());
+  assert((await page.request.put(url+`/api/v1/nodes/${kits.id}/enumeration-bindings/${surface}`,{data:{excluded:true}})).ok());
+  await page.goto(url+'/#/tree/'+root.id);
+  await page.getByRole('tab',{name:'Анализ',exact:true}).click();
+  await page.locator('#agg-param').selectOption(String(length));
+  await page.locator('#agg-run').click();
+  await page.locator('#agg-result').getByText('Сумма',{exact:true}).waitFor();
+  assert.match(await page.locator('#agg-result').textContent(),/1[,.]7/);
+  assert.equal(await page.locator('[data-num-param]').count(),2);
+  await page.locator(`[data-num-param="${length}"] [data-min]`).fill('0.6');
+  await page.locator('[data-act="mf-run"]').click();
+  await page.locator('[data-mf-result] [data-goto]').waitFor();
+  assert.equal(await page.locator('[data-mf-result] [data-goto]').count(),1);
+  assert.match(await page.locator('[data-mf-result]').textContent(),/Полированная/);
+  await page.locator('#dist-enum').selectOption(String(surface));await page.locator('#dist-run').click();
+  await page.locator('.dist-row').first().waitFor();assert.equal(await page.locator('.dist-row').count(),2);
+  await page.evaluate(()=>window.scrollTo(0,0));
+  await page.screenshot({path:path.join(__dirname,'screenshots/parameter-analysis.png'),fullPage:true});
+  await page.goto(url+'/#/tree/'+kits.id);await page.getByRole('heading',{name:kits.name,exact:true}).waitFor();await page.getByRole('tab',{name:'Числовые',exact:true}).click();
+  await page.getByText(/Исключены здесь: Длина заготовки/).waitFor();
+  await page.getByRole('button',{name:'Назначить параметр',exact:true}).click();
+  await page.locator('select[name="paramId"]').selectOption(String(length));await page.getByRole('button',{name:'Назначить',exact:true}).click();
+  const row=page.locator(`[data-param-row="${length}"]`);await row.waitFor();
+  await row.getByRole('button',{name:'Исключить',exact:true}).click();
+  await page.locator('.modal').getByRole('button',{name:'Исключить',exact:true}).click();
+  await page.getByText(/Исключены здесь: Длина заготовки/).waitFor();assert.equal(await row.count(),0);
+  await page.getByRole('tab',{name:'Варианты и свойства',exact:true}).click();
+  await page.getByText(/Исключены здесь: Вид обработки поверхности/).waitFor();
+  await page.getByRole('button',{name:'Назначить характеристику',exact:true}).click();
+  await page.locator('select[name="enumId"]').selectOption(String(surface));await page.locator('.modal').getByRole('button',{name:'Сохранить',exact:true}).click();
+  const block=page.locator(`[data-enum-block="${surface}"]`);await block.waitFor();
+  await block.getByRole('button',{name:'Исключить характеристику',exact:true}).click();
+  await page.locator('.modal').getByRole('button',{name:'Исключить',exact:true}).click();
+  await page.getByText(/Исключены здесь: Вид обработки поверхности/).waitFor();
+  await page.evaluate(()=>window.scrollTo(0,0));
+  await page.screenshot({path:path.join(__dirname,'screenshots/subclass-parameters.png'),fullPage:true});
+  await page.goto(url+'/#/numeric-parameters');await page.locator(`[data-edit="${length}"]`).click();
+  await page.locator('[name="minValue"]').fill('');await page.locator('[name="maxValue"]').fill('');
+  await page.locator('.modal').getByRole('button',{name:'Сохранить',exact:true}).click();
+  await page.locator('.modal').waitFor({state:'hidden'});
+  const changed=await get(`/numeric-parameters/${length}`);assert.equal(changed.minValue,null);assert.equal(changed.maxValue,null);
+  await page.goto(url+'/#/tree/'+empty.id);await page.getByRole('heading',{name:empty.name,exact:true}).waitFor();await page.getByRole('tab',{name:'Анализ',exact:true}).click();
+  await page.locator('[data-act="mf-run"]').click();await page.getByText('В выбранном разделе нет изделий.',{exact:true}).waitFor();
+  assert.deepEqual(errors,[]);
+  console.log('PASS: scoped filters, aggregates, enum distribution, exclusion/restoration, bounds clearing, empty class search; no JS errors.');
+ }catch(e){ console.error("Page errors:",errors); await page.screenshot({path:"/tmp/parameters-ui-failure.png",fullPage:true});throw e;
+ }finally{
+  if(kits&&length)await page.request.put(url+`/api/v1/nodes/${kits.id}/numeric/parameters/${length}/exclusion`);
+  if(kits&&surface)await page.request.put(url+`/api/v1/nodes/${kits.id}/enumeration-bindings/${surface}`,{data:{excluded:true}});
+  if(original)await page.request.patch(url+`/api/v1/numeric-parameters/${length}`,{data:{minValue:original.minValue,maxValue:original.maxValue}});
+  await browser.close();
+ }
+})().catch(e=>{console.error(e);process.exit(1);});

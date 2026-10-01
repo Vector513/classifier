@@ -6,6 +6,9 @@
 import { api, ApiError } from '../api.js';
 import { openForm, confirmDialog, toast, esc, icon } from '../ui.js';
 
+export const nodeKindLabels = {GROUP:'Группа', MODEL:'Модель', PRODUCT:'Изделие / исполнение'};
+const kindOptions = Object.entries(nodeKindLabels).map(([value,label])=>({value,label}));
+
 const CODE_HINT = 'Уникальный код. Рекомендуется латиница, цифры и дефис.';
 
 function unitOptions(units) {
@@ -30,7 +33,7 @@ function noticeHtml(text, tone = 'info') {
 
 /* ─────────────────────────── Создание узла ─────────────────────────── */
 
-export function createNodeDialog({ parentId = null, parentName = null, units = [] }) {
+export function createNodeDialog({ parentId = null, parentName = null, parentKind = null, units = [] }) {
     return openForm({
         title: parentId ? 'Новый дочерний узел' : 'Новый корневой узел',
         subtitle: parentId
@@ -41,6 +44,8 @@ export function createNodeDialog({ parentId = null, parentName = null, units = [
             ? noticeHtml(`Новый узел станет дочерним для класса «${parentName}» и унаследует его параметры.`)
             : noticeHtml('Корневой узел создаётся на верхнем уровне дерева классификатора.'),
         fields: [
+            {name:'nodeKind',label:'Что создаём',type:'select',required:true,value:parentKind==='MODEL'?'PRODUCT':'GROUP',options:parentKind==='MODEL'?kindOptions.filter(o=>o.value==='PRODUCT'):kindOptions,full:true,
+             hint:'Группа объединяет записи. Модель описывает семейство вариантов. Изделие — конкретный вариант, материал или сборка.'},
             {
                 name: 'code', label: 'Код узла', required: true, autofocus: true,
                 placeholder: 'PHONES-APPLE', maxlength: 100, hint: CODE_HINT,
@@ -52,7 +57,7 @@ export function createNodeDialog({ parentId = null, parentName = null, units = [
             {
                 name: 'unitOfMeasureId', label: 'Единица измерения', type: 'select', full: true,
                 options: unitOptions(units),
-                hint: 'Единица, в которой учитывается изделие (необязательно).',
+                hint: 'Для модели и изделия обязательна. Если не указана, берётся единица родителя. У исполнения она совпадает с единицей модели.',
             },
         ],
         submitLabel: 'Создать узел', submitIcon: 'plus',
@@ -62,6 +67,7 @@ export function createNodeDialog({ parentId = null, parentName = null, units = [
                     code: v.code,
                     name: v.name,
                     parentId: parentId,
+                    nodeKind: v.nodeKind,
                     unitOfMeasureId: v.unitOfMeasureId ? Number(v.unitOfMeasureId) : null,
                 });
                 toast.success(`Узел «${node.name}» создан`);
@@ -79,6 +85,7 @@ export function editNodeDialog({ node, units = [] }) {
         subtitle: node.name,
         icon: 'edit',
         fields: [
+            {name:'nodeKind',label:'Тип записи',type:'select',required:true,value:node.nodeKind,options:kindOptions,full:true,hint:'Тип не зависит от числа детей. У изделия не может быть дочерних записей; у модели — только исполнения.'},
             {
                 name: 'code', label: 'Код узла', required: true, autofocus: true,
                 value: node.code, maxlength: 100, hint: CODE_HINT,
@@ -97,6 +104,7 @@ export function editNodeDialog({ node, units = [] }) {
         onSubmit: async (v) => {
             try {
                 const updated = await api.nodes.update(node.id, {
+                    nodeKind: v.nodeKind,
                     code: v.code,
                     name: v.name,
                     unitOfMeasureId: v.unitOfMeasureId ? Number(v.unitOfMeasureId) : null,
@@ -113,7 +121,7 @@ export function editNodeDialog({ node, units = [] }) {
 /** Собирает плоский список узлов дерева с отступами по уровню вложенности. */
 function flattenTree(tree, depth = 0, acc = []) {
     for (const n of tree) {
-        acc.push({ id: n.id, name: n.name, code: n.code, depth });
+        acc.push({ id: n.id, name: n.name, code: n.code, nodeKind:n.nodeKind, depth });
         if (n.children && n.children.length) flattenTree(n.children, depth + 1, acc);
     }
     return acc;
@@ -137,7 +145,7 @@ function collectSubtreeIds(tree, targetId, found = { hit: false }, acc = new Set
 
 export function moveNodeDialog({ node, tree }) {
     const forbidden = collectSubtreeIds(tree, node.id);
-    const flat = flattenTree(tree).filter((n) => !forbidden.has(n.id));
+    const flat = flattenTree(tree).filter((n) => !forbidden.has(n.id) && n.nodeKind!=='PRODUCT' && (n.nodeKind!=='MODEL' || node.nodeKind==='PRODUCT'));
     const indent = (d) => '    '.repeat(d);
 
     const options = [

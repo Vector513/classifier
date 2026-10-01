@@ -23,4 +23,12 @@ Thumbs.db
 .claude/
 
 # Other
-/docs
+/docs/*
+!/docs/bom/
+
+# Local database backups
+/backups/
+
+!/docs/catalog/
+
+/.kotlin/

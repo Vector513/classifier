@@ -35,6 +35,7 @@ class NodeAttributeValueControllerTest {
         }
     }
 
+    @Autowired lateinit var jdbc: org.springframework.jdbc.core.JdbcTemplate
     @Autowired lateinit var mockMvc: MockMvc
     @Autowired lateinit var navRepo: NodeAttributeValueRepository
     @Autowired lateinit var nodeRepo: ClassifierNodeRepository
@@ -50,6 +51,9 @@ class NodeAttributeValueControllerTest {
     @BeforeEach
     fun setup() {
         navRepo.deleteAll()
+        jdbc.execute("DELETE FROM node_enumeration_option")
+        jdbc.execute("DELETE FROM node_enumeration")
+        navRepo.deleteAll()
         valueRepo.deleteAll()
         enumRepo.deleteAll()
         classRepo.deleteAll()
@@ -60,6 +64,7 @@ class NodeAttributeValueControllerTest {
         enumeration = enumRepo.save(Enumeration(code = "PHONE-COLORS", name = "Цвета телефонов", enumerationClass = cls))
         blackValue = valueRepo.save(EnumerationValue(code = "BLACK", name = "Чёрный", enumeration = enumeration, sortOrder = 0))
         whiteValue = valueRepo.save(EnumerationValue(code = "WHITE", name = "Белый", enumeration = enumeration, sortOrder = 1))
+        jdbc.update("INSERT INTO node_enumeration(classifier_node_id,enumeration_id) VALUES(?,?)",node.id,enumeration.id)
     }
 
     @Test
@@ -147,6 +152,7 @@ class NodeAttributeValueControllerTest {
         val cls2 = classRepo.save(EnumerationClass(code = "OS", name = "ОС"))
         val osEnum = enumRepo.save(Enumeration(code = "PHONE-OS", name = "ОС телефонов", enumerationClass = cls2))
         val iosValue = valueRepo.save(EnumerationValue(code = "IOS", name = "iOS", enumeration = osEnum, sortOrder = 0))
+        jdbc.update("INSERT INTO node_enumeration(classifier_node_id,enumeration_id) VALUES(?,?)",node.id,osEnum.id)
 
         navRepo.save(NodeAttributeValue(classifierNode = node, enumeration = enumeration, selectedValue = blackValue))
         navRepo.save(NodeAttributeValue(classifierNode = node, enumeration = osEnum, selectedValue = iosValue))

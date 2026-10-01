@@ -40,6 +40,7 @@ class EnumerationControllerTest {
         }
     }
 
+    @Autowired lateinit var jdbc: org.springframework.jdbc.core.JdbcTemplate
     @Autowired lateinit var mockMvc: MockMvc
     @Autowired lateinit var classRepo: EnumerationClassRepository
     @Autowired lateinit var enumRepo: EnumerationRepository
@@ -51,6 +52,8 @@ class EnumerationControllerTest {
 
     @BeforeEach
     fun setup() {
+        jdbc.execute("DELETE FROM node_enumeration_option")
+        jdbc.execute("DELETE FROM node_enumeration")
         valueRepo.deleteAll()
         enumRepo.deleteAll()
         classRepo.deleteAll()

@@ -10,6 +10,11 @@ services:
       POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256"
     ports:
       - "5434:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U classifier -d classifier"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
     volumes:
       - pgdata:/var/lib/postgresql/data
 
@@ -17,13 +22,15 @@ services:
     build: .
     container_name: classifier-app
     ports:
-      - "8080:8080"
+      - "8080:8082"
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/classifier
       SPRING_DATASOURCE_USERNAME: classifier
       SPRING_DATASOURCE_PASSWORD: classifier
+      CLASSIFIER_DEMO_ENABLED: "true"
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
 
 volumes:
   pgdata:
