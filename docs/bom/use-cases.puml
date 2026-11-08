@@ -1,8 +1,8 @@
 @startuml
 left to right direction
-actor "Конструктор" as Author
-actor "Технолог" as Planner
-rectangle "Материальные спецификации" {
+actor "Менеджер каталога" as Author
+actor "Менеджер комплектации" as Planner
+rectangle "Спецификации изделий и товарных комплектов" {
  usecase "Зарегистрировать изделие\nиз общего классификатора" as Register
  usecase "Создать черновик\nспецификации" as Draft
  usecase "Добавить / заменить / исключить\nпозицию с нормой расхода" as Edit
@@ -10,7 +10,7 @@ rectangle "Материальные спецификации" {
  usecase "Утвердить версию" as Release
  usecase "Проверить циклы\nи ссылки на версии" as Validate
  usecase "Раскрыть состав\nна всю глубину" as Explode
- usecase "Рассчитать сводные нормы\nдля класса ресурсов" as Totals
+ usecase "Рассчитать потребность по классу\nна заданное количество комплектов" as Totals
 }
 Author --> Register
 Author --> Draft

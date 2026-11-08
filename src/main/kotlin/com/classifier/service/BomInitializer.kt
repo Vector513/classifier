@@ -21,21 +21,24 @@ class BomInitializer(
     @Transactional
     override fun run(args: ApplicationArguments) {
         ResourceDatabasePopulator().apply {
+            setSqlScriptEncoding(Charsets.UTF_8.name())
             setSeparator("^^^")
             addScript(ClassPathResource("bom.sql"))
         }.execute(dataSource)
         if (demoEnabled) seedDemo()
     }
 
-    /** Один SQL-блок с транзакционной блокировкой и постоянной отметкой выполнения. */
+    /** Демонстрационные наборы загружаются с постоянными отметками выполнения. */
     @Transactional
     fun seedDemo() {
         ResourceDatabasePopulator().apply {
+            setSqlScriptEncoding(Charsets.UTF_8.name())
             setSeparator(ScriptUtils.EOF_STATEMENT_SEPARATOR)
             addScript(ClassPathResource("bom-demo.sql"))
-            addScript(ClassPathResource("bom-demo-updates.sql"))
             addScript(ClassPathResource("catalog-demo.sql"))
-            addScript(ClassPathResource("catalog-parameters-demo.sql"))
+            addScript(ClassPathResource("catalog-assortment-demo.sql"))
+            addScript(ClassPathResource("catalog-bom-layout.sql"))
+            addScript(ClassPathResource("catalog-product-details-demo.sql"))
         }.execute(dataSource)
     }
 }

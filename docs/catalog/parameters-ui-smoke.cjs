@@ -11,11 +11,12 @@ if(!url||new URL(url).port==='8080')throw new Error('Укажите отдель
  const errors=[];page.on('pageerror',e=>errors.push(e.message));
  const get=async p=>{const r=await page.request.get(url+'/api/v1'+p);assert(r.ok(),await r.text());return r.json();};
  const flat=ns=>ns.flatMap(n=>[n,...flat(n.children||[])]);
- let kits,length,surface,original;
+ let kits,length,surface,original,empty;
  try{
   const nodes=flat(await get('/nodes/tree'));
   const root=nodes.find(n=>n.code==='DEMO-PARAMETERS');kits=nodes.find(n=>n.code==='DEMO-KITS');
-  const blank=nodes.find(n=>n.code==='DEMO-BLANK-MATTE'),empty=nodes.find(n=>n.code==='DEMO-EMPTY-GROUP');
+  const created=await page.request.post(url+'/api/v1/nodes',{data:{code:'CHECK-EMPTY-'+Date.now(),name:'Пустая группа для проверки',nodeKind:'GROUP'}});
+  assert(created.ok());empty=await created.json();
   original=(await get('/numeric-parameters')).find(p=>p.code==='DEMO-LENGTH');length=original.id;
   const options=await get(`/nodes/${root.id}/parameter-options`);surface=options.enumerations.find(e=>e.code==='DEMO-SURFACE').id;
   assert.equal(options.numericParameters.length,2);
@@ -67,6 +68,7 @@ if(!url||new URL(url).port==='8080')throw new Error('Укажите отдель
   console.log('PASS: scoped filters, aggregates, enum distribution, exclusion/restoration, bounds clearing, empty class search; no JS errors.');
  }catch(e){ console.error("Page errors:",errors); await page.screenshot({path:"/tmp/parameters-ui-failure.png",fullPage:true});throw e;
  }finally{
+  if(empty)await page.request.delete(url+`/api/v1/nodes/${empty.id}`);
   if(kits&&length)await page.request.put(url+`/api/v1/nodes/${kits.id}/numeric/parameters/${length}/exclusion`);
   if(kits&&surface)await page.request.put(url+`/api/v1/nodes/${kits.id}/enumeration-bindings/${surface}`,{data:{excluded:true}});
   if(original)await page.request.patch(url+`/api/v1/numeric-parameters/${length}`,{data:{minValue:original.minValue,maxValue:original.maxValue}});

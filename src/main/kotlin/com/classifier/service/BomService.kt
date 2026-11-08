@@ -1,6 +1,7 @@
 package com.classifier.service
 
 import com.classifier.dto.*
+import com.classifier.entity.NodeKind
 import com.classifier.exception.*
 import com.classifier.repository.*
 import org.springframework.stereotype.Service
@@ -14,7 +15,17 @@ class BomService(private val repo: BomRepository, private val nodes: ClassifierN
     fun products() = repo.products()
     fun specifications() = repo.specifications()
     fun get(id: Long) = repo.specification(id) ?: throw EntityNotFoundException("Спецификация $id не найдена")
-    private fun product(id: Long) = repo.product(id) ?: throw EntityNotFoundException("Изделие $id не зарегистрировано в спецификациях")
+    private fun catalogProduct(id: Long) = nodes.findById(id).orElseThrow {
+        EntityNotFoundException("Узел $id не найден")
+    }.also {
+        if (it.nodeKind == NodeKind.GROUP) throw InvalidSelectionException("Выберите модель или изделие из классификатора")
+    }
+    private fun ensureRegistered(id: Long, kind: ProductKind) {
+        if (repo.product(id) != null) return
+        val unitId = catalogProduct(id).unitOfMeasure?.id
+            ?: throw InvalidSelectionException("Укажите единицу измерения в карточке изделия")
+        repo.register(RegisterBomProductRequest(id, kind, unitId))
+    }
     private fun draft(id: Long): BomSpecificationResponse {
         repo.lock()
         return get(id).also {
@@ -23,19 +34,17 @@ class BomService(private val repo: BomRepository, private val nodes: ClassifierN
     }
     fun register(r: RegisterBomProductRequest): BomProductResponse {
         repo.lock()
-        if (!nodes.existsById(r.nodeId)) throw EntityNotFoundException("Узел ${r.nodeId} не найден")
-        val node = nodes.findById(r.nodeId).orElseThrow()
-        if (node.nodeKind == com.classifier.entity.NodeKind.GROUP) throw InvalidSelectionException("Группу нельзя включить в состав. Выберите модель или изделие")
+        val node = catalogProduct(r.nodeId)
         if (node.unitOfMeasure != null && node.unitOfMeasure!!.id != r.unitId)
             throw InvalidSelectionException("Используйте единицу измерения, указанную в карточке изделия")
         if (!units.existsById(r.unitId)) throw EntityNotFoundException("Единица измерения ${r.unitId} не найдена")
         if (repo.product(r.nodeId)!=null) throw DuplicateCodeException("Изделие уже зарегистрировано")
         repo.register(r)
-        return product(r.nodeId)
+        return repo.product(r.nodeId)!!
     }
     fun create(r: CreateBomSpecificationRequest): BomSpecificationResponse {
         repo.lock()
-        product(r.productId)
+        ensureRegistered(r.productId, ProductKind.ASSEMBLY)
         r.baseId?.let { if (get(it).status!="RELEASED") throw InvalidSelectionException("Базовая версия должна быть утверждена") }
         val id=repo.create(r)
         validateCycles(id)
@@ -46,7 +55,7 @@ class BomService(private val repo: BomRepository, private val nodes: ClassifierN
     fun putLine(id: Long, position: Int, r: BomLineRequest): List<BomLineResponse> {
         val spec=draft(id)
         checkPosition(position)
-        product(r.componentId)
+        ensureRegistered(r.componentId, ProductKind.PURCHASED)
         if (r.componentId==spec.productId) throw CyclicMoveException("Изделие не может входить в собственный состав")
         r.componentSpecificationId?.let {
             val child=get(it)

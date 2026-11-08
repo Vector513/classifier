@@ -23,7 +23,9 @@ class CatalogInitializer(private val dataSource: DataSource, private val jdbc: J
         }.execute(dataSource)
         if (bootstrapEnabled && jdbc.queryForObject("SELECT count(*) FROM schema_migration WHERE name='catalog-base-data-v2'", Int::class.java)==0) {
             // Все связи в наборе задаются по кодам; существующие записи не перезаписываются.
-            ResourceDatabasePopulator(ClassPathResource("data.sql")).execute(dataSource)
+            ResourceDatabasePopulator(ClassPathResource("data.sql")).apply {
+                setSqlScriptEncoding(Charsets.UTF_8.name())
+            }.execute(dataSource)
             jdbc.update("INSERT INTO schema_migration(name) VALUES('catalog-base-data-v2')")
         }
         ResourceDatabasePopulator().apply {

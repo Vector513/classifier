@@ -23,7 +23,7 @@ if mode=='prepare':
     group=req('/nodes','POST',{'code':'CHECK-USER-GROUP','name':'Сохранённая пользовательская группа','nodeKind':'GROUP'})
     req(f"/nodes/{sku['id']}/attributes",'PUT',{'enumerationId':color['enumerationId'],'valueId':ids['WHITE']})
     req(f"/nodes/{model['id']}/enumeration-bindings/{color['enumerationId']}",'PUT',{'allowedValueIds':[ids['BLACK'],ids['WHITE']]})
-    draft=next(s for s in req('/bom/specifications') if s['productCode']=='BOM-HOUSING' and s['status']=='DRAFT')
+    draft=next(s for s in req('/bom/specifications') if s['productCode']=='BOM-EL-GAME-STD' and s['revision']==2 and s['status']=='DRAFT')
     req(f"/bom/specifications/{draft['id']}",'DELETE')
     state={'group':group['id'],'model':model['id'],'sku':sku['id'],'enum':color['enumerationId'],'white':ids['WHITE'],'options':[ids['BLACK'],ids['WHITE']],'deletedDraft':draft['id'],'nodeCount':len(flat(req('/nodes/tree')))}
     with open(statefile,'w') as f:json.dump(state,f)

@@ -76,26 +76,16 @@ BEGIN
         END IF;
         END IF;
     END IF;
-    INSERT INTO classifier_node(code,name,parent_id,node_kind,sort_order,created_at,updated_at)
-        SELECT 'DEMO-EMPTY-GROUP','Пустая группа — ещё без изделий',id,'GROUP',99,now(),now() FROM classifier_node WHERE code='ELECTRONICS' ON CONFLICT(code) DO NOTHING;
     -- У каждой числовой характеристики примера есть единица измерения.
     INSERT INTO unit_of_measure(code,name) VALUES('MAH','мАч'),('INCH','дюймы'),('GB','ГБ'),('RUB','рубли') ON CONFLICT(code) DO NOTHING;
     UPDATE numeric_parameter SET unit_of_measure_id=(SELECT id FROM unit_of_measure WHERE code=CASE numeric_parameter.code
         WHEN 'BATTERY' THEN 'MAH' WHEN 'SCREEN_SIZE' THEN 'INCH' WHEN 'RAM' THEN 'GB' WHEN 'PRICE' THEN 'RUB' END)
         WHERE code IN ('BATTERY','SCREEN_SIZE','RAM','PRICE') AND unit_of_measure_id IS NULL;
-    -- Материалам назначены числовые характеристики, сборке — несколько типов компонентов.
-    INSERT INTO numeric_parameter(code,name,description,min_value,max_value,unit_of_measure_id,created_at,updated_at)
-        VALUES('DEMO-MATERIAL-PRICE','Цена материала за единицу','Учебная цена за одну единицу учёта материала',0,1000000,(SELECT id FROM unit_of_measure WHERE code='RUB'),now(),now()) ON CONFLICT(code) DO NOTHING;
-    INSERT INTO node_numeric_parameter(classifier_node_id,numeric_parameter_id,created_at)
-        SELECT n.id,p.id,now() FROM classifier_node n,numeric_parameter p WHERE n.code='BOM-MATERIALS' AND p.code='DEMO-MATERIAL-PRICE' ON CONFLICT DO NOTHING;
-    INSERT INTO node_numeric_value(classifier_node_id,numeric_parameter_id,value,created_at,updated_at)
-        SELECT n.id,p.id,CASE n.code WHEN 'BOM-STEEL' THEN 120 ELSE 400 END,now(),now() FROM classifier_node n,numeric_parameter p
-        WHERE n.code IN ('BOM-STEEL','BOM-PAINT') AND p.code='DEMO-MATERIAL-PRICE' ON CONFLICT(classifier_node_id,numeric_parameter_id) DO NOTHING;
     -- Подсистема ХО остаётся отдельной абстракцией: шаблон и заполненный документ.
     IF to_regclass('ho_class') IS NOT NULL THEN
         INSERT INTO ho_class(code,name,description) VALUES('DEMO-PURCHASE','Закупки','Учебная группа операций') ON CONFLICT(code) DO NOTHING;
         SELECT id INTO ho_group FROM ho_class WHERE code='DEMO-PURCHASE';
-        INSERT INTO ho_template(ho_class_id,code,name,description) VALUES(ho_group,'DEMO-MATERIAL-PURCHASE','Закупка материалов','Пример шаблона с числом, текстом и датой') ON CONFLICT(code) DO NOTHING;
+        INSERT INTO ho_template(ho_class_id,code,name,description) VALUES(ho_group,'DEMO-MATERIAL-PURCHASE','Закупка электроники','Пример шаблона с числом, текстом и датой') ON CONFLICT(code) DO NOTHING;
         SELECT id INTO template_id FROM ho_template WHERE code='DEMO-MATERIAL-PURCHASE';
         INSERT INTO ho_parameter_type(code,name,data_type,min_value) VALUES('DEMO-AMOUNT','Сумма','NUMBER',0),('DEMO-DOCUMENT','Основание','STRING',NULL),('DEMO-DELIVERY','Дата поставки','DATE',NULL) ON CONFLICT(code) DO NOTHING;
         INSERT INTO ho_template_parameter(ho_template_id,ho_parameter_type_id,is_required,sort_order)
@@ -104,18 +94,18 @@ BEGIN
             SELECT 'DEMO-MATERIAL-COLOR','Цвет маркировки упаковки','ENUM',id FROM enumeration WHERE code='PHONE-COLORS' ON CONFLICT(code) DO NOTHING;
         INSERT INTO ho_template_parameter(ho_template_id,ho_parameter_type_id,is_required,sort_order)
             SELECT template_id,id,false,3 FROM ho_parameter_type WHERE code='DEMO-MATERIAL-COLOR' ON CONFLICT DO NOTHING;
-        INSERT INTO ho_role_type(code,name,description) VALUES('DEMO-SUPPLIER','Поставщик','Кто поставляет материалы') ON CONFLICT(code) DO NOTHING;
+        INSERT INTO ho_role_type(code,name,description) VALUES('DEMO-SUPPLIER','Поставщик','Кто поставляет электронику') ON CONFLICT(code) DO NOTHING;
         SELECT id INTO role_id FROM ho_role_type WHERE code='DEMO-SUPPLIER';
         INSERT INTO ho_template_role(ho_template_id,ho_role_type_id,is_required) VALUES(template_id,role_id,true) ON CONFLICT DO NOTHING;
-        INSERT INTO ho_instance(ho_template_id,code,name,doc_date,status) VALUES(template_id,'DEMO-PURCHASE-001','Учебная закупка стали',DATE '2026-11-08','DRAFT') ON CONFLICT(code) DO NOTHING;
+        INSERT INTO ho_instance(ho_template_id,code,name,doc_date,status) VALUES(template_id,'DEMO-PURCHASE-001','Учебная закупка игровой периферии',DATE '2026-11-08','DRAFT') ON CONFLICT(code) DO NOTHING;
         SELECT id INTO op_id FROM ho_instance WHERE code='DEMO-PURCHASE-001';
         INSERT INTO ho_instance_value(ho_instance_id,ho_parameter_type_id,numeric_value,string_value,date_value)
-            SELECT op_id,id,CASE WHEN code='DEMO-AMOUNT' THEN 12000 END,CASE WHEN code='DEMO-DOCUMENT' THEN 'Учебная заявка на материалы' END,CASE WHEN code='DEMO-DELIVERY' THEN DATE '2026-11-15' END
+            SELECT op_id,id,CASE WHEN code='DEMO-AMOUNT' THEN 12000 END,CASE WHEN code='DEMO-DOCUMENT' THEN 'Учебная заявка на игровую периферию' END,CASE WHEN code='DEMO-DELIVERY' THEN DATE '2026-11-15' END
             FROM ho_parameter_type WHERE code IN ('DEMO-AMOUNT','DEMO-DOCUMENT','DEMO-DELIVERY') ON CONFLICT DO NOTHING;
         INSERT INTO ho_instance_value(ho_instance_id,ho_parameter_type_id,enum_value_id)
             SELECT op_id,p.id,v.id FROM ho_parameter_type p JOIN enumeration_value v ON v.enumeration_id=p.enumeration_id
             WHERE p.code='DEMO-MATERIAL-COLOR' AND v.code='BLACK' ON CONFLICT DO NOTHING;
-        INSERT INTO ho_instance_role(ho_instance_id,ho_role_type_id,counterparty) VALUES(op_id,role_id,'Учебный поставщик «Металл»') ON CONFLICT DO NOTHING;
+        INSERT INTO ho_instance_role(ho_instance_id,ho_role_type_id,counterparty) VALUES(op_id,role_id,'Учебный поставщик электроники') ON CONFLICT DO NOTHING;
     END IF;
     INSERT INTO schema_migration(name) VALUES('catalog-demo-v2');
 END

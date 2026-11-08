@@ -152,7 +152,7 @@ export async function renderNodeDetail(container, nodeId, ctx) {
         renderTab(tabId, panel, node, ctx);
     };
     tabButtons.forEach((b) => b.addEventListener('click', () => openTab(b.dataset.tab)));
-    openTab(activeTab);
+    openTab(node.code === 'BOM-EL-KITS' ? 'overview' : activeTab);
 }
 
 function renderTab(tabId, panel, node, ctx) {
@@ -182,6 +182,7 @@ async function renderOverviewTab(panel, node, ctx) {
     const siblingCount = siblings.length;
 
     panel.innerHTML = `
+        ${node.code === 'BOM-EL-KITS' ? '<div class="section-block" data-specifications></div>' : ''}
         <div class="prop-list">
             <div class="prop-list__key">Код узла</div>
             <div class="prop-list__val"><span class="badge badge--code">${esc(node.code)}</span></div>
@@ -240,6 +241,8 @@ async function renderOverviewTab(panel, node, ctx) {
     `;
     withIcons(panel);
     injectOverviewStyles();
+    const specifications = panel.querySelector('[data-specifications]');
+    if (specifications) renderSpecifications(specifications);
 
     panel.querySelectorAll('[data-child]').forEach((btn) => {
         btn.addEventListener('click', () => navigate('/tree/' + btn.dataset.child));
@@ -259,6 +262,27 @@ async function renderOverviewTab(panel, node, ctx) {
     const downBtn = panel.querySelector('[data-act="down"]');
     if (upBtn) upBtn.addEventListener('click', () => reorder(position - 1));
     if (downBtn) downBtn.addEventListener('click', () => reorder(position + 1));
+}
+
+async function renderSpecifications(section) {
+    section.innerHTML = loadingState('Загрузка составов изделий…');
+    try {
+        const specs = await api.bom.specifications();
+        section.innerHTML = `
+            <div class="section-title">
+                <span>Все составы и версии</span><span class="section-title__count">${specs.length}</span>
+            </div>
+            <p><a href="#/bom">Открыть раздел «Составы изделий»</a></p>
+            ${specs.length ? `<div class="child-list">${specs.map(spec => `
+                <a class="child-list__item" href="#/bom/${spec.id}">
+                    <span class="child-list__name">${esc(spec.productName)}</span>
+                    <span class="badge badge--code">версия ${spec.revision}</span>
+                    <span class="badge badge--neutral">${spec.status === 'DRAFT' ? 'Черновик' : 'Утверждён'}</span>
+                </a>`).join('')}</div>` : '<p class="text-muted">Составов пока нет.</p>'}
+        `;
+    } catch (err) {
+        section.innerHTML = emptyState({ icon: 'alert-triangle', title: 'Не удалось загрузить составы', text: err.message });
+    }
 }
 
 /* ═══════════════════════ Вкладка «Числовые параметры» ═══════════════════ */

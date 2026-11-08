@@ -4,11 +4,18 @@ import { navigate } from '../router.js';
 
 const kinds = { ASSEMBLY: 'Сборочная единица', PART: 'Деталь', MATERIAL: 'Материал', PURCHASED: 'Покупное изделие' };
 const kindHints = {
-    ASSEMBLY: 'Собираем из нескольких компонентов. Например, корпус с креплениями.',
-    PART: 'Изготавливаем отдельную деталь из материала. Например, пластину из стали.',
-    MATERIAL: 'Расходуем при изготовлении: сталь, краска, проволока.',
-    PURCHASED: 'Получаем готовым от поставщика. Например, болт М6. Физически он тоже деталь, но здесь важен способ получения.',
+    ASSEMBLY: 'Объединяем несколько компонентов. Например, формируем игровой набор.',
+    PART: 'Отдельная деталь, которую изготавливаем сами. Например, крепление датчика.',
+    MATERIAL: 'Ресурс, который расходуется при сборке. Например, термопаста.',
+    PURCHASED: 'Получаем готовым от поставщика. Например, игровую клавиатуру или кабель.',
 };
+const demoKits = [
+    ['Игровой компьютер', 'PC-STD', 'PC-PRO'],
+    ['Умный дом', 'HOME-START', 'HOME-PRO'],
+    ['Игровой набор', 'GAME-STD', 'GAME-PREMIUM'],
+    ['Видеонаблюдение', 'SEC-STD', 'SEC-PRO'],
+    ['Комплект со смартфоном', 'PHONE-STD', 'PHONE-PREMIUM'],
+];
 const button = (label, attrs = '', primary = false) => `<button type="button" class="btn ${primary ? 'btn--primary' : 'btn--secondary'}" ${attrs}>${label}</button>`;
 const table = (heads, rows, empty = 'Пока нет записей.') => `<div class="table-wrap"><table class="table"><thead><tr>${heads.map(h=>`<th scope="col">${h}</th>`).join('')}</tr></thead><tbody>${rows.length ? rows.map(cells=>`<tr>${cells.map((cell,i)=>`<td data-label="${esc(heads[i])}"><div class="bom-cell-value">${cell}</div></td>`).join('')}</tr>`).join('') : `<tr><td colspan="${heads.length}" class="bom-empty">${empty}</td></tr>`}</tbody></table></div>`;
 const row = cells => cells;
@@ -36,78 +43,97 @@ export async function render(container, route) {
         if (await openForm(options) !== null) { toast.success('Изменения сохранены'); await refresh(); }
     };
     const unitLabel = code => ({'PCS':'шт.', 'KG':'кг', 'M':'м', 'BOM-PCS':'шт.', 'BOM-KG':'кг'}[code] || units.find(u=>u.code===code)?.name || code);
-    const productOptions = products.map(p => ({value:p.id,label:`${p.name} — ${p.code} (${unitLabel(p.unitCode)})`}));
+    const catalogProducts = nodes.filter(n=>n.nodeKind!=='GROUP');
+    const productOptions = catalogProducts.map(n => ({
+        value:n.id,label:`${n.name} — ${n.code} (${unitLabel(n.unitOfMeasure?.code || 'ед.')})`,
+    }));
     const released = specs.filter(s => s.status === 'RELEASED');
     const specLink = id => {
         const target = specs.find(s=>s.id===id);
         return target ? `<a href="#/bom/${id}">${esc(label(target))}</a>` : 'Исходная версия недоступна';
     };
-    const demo = specs.find(s=>s.productCode==='BOM-HOUSING' && s.revision===1);
+    const demoRows = demoKits.flatMap(([name, baseCode, variantCode]) => {
+        const base = released.find(s=>s.productCode===`BOM-EL-${baseCode}` && s.revision===1);
+        const variant = released.find(s=>s.productCode===`BOM-EL-${variantCode}` && s.baseId===base?.id);
+        return base ? [[esc(name), specLink(base.id), variant ? specLink(variant.id) : '—']] : [];
+    });
+    const versionKind = s => {
+        if (!s.baseId) return 'Базовый состав';
+        return specs.find(b=>b.id===s.baseId)?.productId===s.productId ? 'Новая редакция' : 'Модификация';
+    };
     container.innerHTML = `<div class="page bom-page">
         <div class="page-head"><div class="page-head__text"><h1>Составы изделий</h1>
-        <div class="page-head__sub">Из чего состоит изделие и сколько материалов понадобится для изготовления. Такой список называется спецификацией.</div></div>
+        <div class="page-head__sub">Что входит в товарный комплект или сборку и сколько компонентов нужно на выбранное количество. Такой список называется спецификацией.</div></div>
         <div class="page-head__actions">${button('Добавить изделие или материал','data-register')}${button('Создать состав','data-create',true)}</div></div>
         <details class="card bom-guide" ${!selected ? 'open' : ''}><summary>Первый раз здесь? Начните с трёх шагов</summary>
             <ol class="bom-steps">
-                <li><strong>Выберите изделие</strong><span>Откройте готовый состав ниже или создайте свой черновик.</span></li>
+                <li><strong>Выберите комплект или изделие</strong><span>Откройте готовый состав или выберите товар из классификатора при создании черновика.</span></li>
                 <li><strong>Укажите, из чего оно состоит</strong><span>Добавьте компоненты и количество каждого на одну единицу изделия.</span></li>
-                <li><strong>Рассчитайте потребность</strong><span>Укажите объём изготовления. Система учтёт и компоненты вложенных сборок.</span></li>
+                <li><strong>Рассчитайте потребность</strong><span>Укажите количество комплектов. Система учтёт и компоненты вложенных сборок.</span></li>
             </ol>
-            ${demo ? `<a class="btn btn--secondary" href="#/bom/${demo.id}">Разобраться на примере корпуса</a>` : '<p>Для нового изделия сначала создайте запись в <a href="#/tree">справочнике изделий</a>, затем нажмите «Добавить изделие или материал».</p>'}
             <p>Черновик можно менять. Утверждённый состав зафиксирован: для следующих изменений создайте новую версию.</p>
         </details>
+        ${!selected && demoRows.length ? `<section class="card" id="bom-demo-kits"><h2>Примеры комплектов электроники</h2>
+            ${table(['Комплект','Базовая комплектация','Улучшенная комплектация'],demoRows)}</section>` : ''}
         ${selected ? '<a class="bom-back" href="#/bom">← Все составы и версии</a>' : ''}
         <div id="bom-detail"></div>
         <${selected ? 'details' : 'section'} class="card" id="bom-list">
-            ${selected ? '<summary>Другие составы и история версий</summary>' : '<h2>Выберите состав изделия</h2>'}
-            <div class="bom-filters"><label class="field"><span>Название или код изделия</span><input class="input" type="search" id="bom-search" placeholder="Например, корпус или BOM-HOUSING"></label>
+            ${selected ? '<summary>Другие составы и история версий</summary>' : '<h2>Все составы и версии</h2>'}
+            <div class="bom-filters"><label class="field"><span>Название или код</span><input class="input" type="search" id="bom-search" placeholder="Например, Gaming Set или BOM-EL-GAME-STD"></label>
             <label class="field"><span>Какие версии показать</span><select class="select" id="bom-status"><option value="">Все версии</option><option value="DRAFT">Черновики — можно менять</option><option value="RELEASED">Утверждённые — зафиксированы</option></select></label></div>
             <div id="bom-specs" aria-live="polite"></div>
         </${selected ? 'details' : 'section'}>
-        <details class="card"><summary>Изделия и материалы, доступные для состава (${products.length})</summary>
-            <p>Выбирайте тип по тому, как используется или получается изделие. Единица измерения нужна для расчёта количества.</p>
+        <details class="card"><summary>Зарегистрированные участники BOM (${products.length})</summary>
+            <p>Любую модель или изделие из классификатора можно выбрать прямо в форме состава. Здесь показаны товары, уже зарегистрированные в BOM.</p>
             ${table(['Название и код','Тип','Единица измерения'],products.map(p=>row([`<strong>${esc(p.name)}</strong><div class="text-muted">${esc(p.code)}</div>`,`${kinds[p.kind]}<div class="bom-cell-hint">${kindHints[p.kind]}</div>`,esc(unitLabel(p.unitCode))])), 'Список пуст. Создайте запись в справочнике и добавьте её кнопкой вверху страницы.')}
             <p>Не нашли нужное название? <a href="#/tree">Откройте справочник изделий</a>, создайте запись внутри подходящей группы и вернитесь сюда.</p>
         </details>
         <details class="card"><summary>Словарь простыми словами</summary><dl class="bom-glossary">
-            <dt>Спецификация (BOM)</dt><dd>Список компонентов и их количества для изготовления одного изделия.</dd>
+            <dt>Спецификация (BOM)</dt><dd>Список компонентов и их количество на один комплект или изделие.</dd>
             <dt>Компонент и позиция</dt><dd>Компонент — то, что входит в состав. Позиция — номер его строки. Один компонент может встречаться несколько раз.</dd>
-            <dt>Норма расхода</dt><dd>Количество компонента на одну единицу изделия. Например, 0,5 кг стали на один кронштейн.</dd>
-            <dt>Версия и модификация</dt><dd>Новая версия описывает изменение того же изделия. Модификация — состав другого изделия на основе существующего, например усиленного корпуса.</dd>
+            <dt>Норма расхода</dt><dd>Количество компонента на одну единицу изделия. Например, 20 м кабеля на комплект видеонаблюдения.</dd>
+            <dt>Версия и модификация</dt><dd>Новая редакция описывает изменение того же изделия. Модификация — состав другого изделия на основе существующего, например Gaming PC Pro на основе Gaming PC Standard.</dd>
             <dt>Исходный состав (база)</dt><dd>Утверждённая версия, из которой взяты компоненты. В новой версии вы задаёте только отличия; исходная версия сохраняется.</dd>
-            <dt>Группа ресурсов (класс)</dt><dd>Раздел справочника, например «Материалы». Расчёт по группе включает и все её вложенные группы.</dd>
+            <dt>Группа ресурсов (класс)</dt><dd>Раздел справочника, например «Игровая периферия». Расчёт по группе включает и её подгруппы.</dd>
         </dl></details>
     </div>`;
     const drawList = () => {
         const search = container.querySelector('#bom-search').value.trim().toLocaleLowerCase('ru');
         const filter = container.querySelector('#bom-status').value;
         const visible = specs.filter(s=>(!filter || s.status===filter) && `${s.productName} ${s.productCode}`.toLocaleLowerCase('ru').includes(search));
-        container.querySelector('#bom-specs').innerHTML = table(['Изделие и версия','Состояние','На основе','Что изменилось'],visible.map(s=>row([
-            specLink(s.id),status(s),s.baseId?specLink(s.baseId):'Самостоятельный состав',esc(s.description),
+        container.querySelector('#bom-specs').innerHTML = table(['Изделие и версия','Состояние','Комплектация','Что изменилось'],visible.map(s=>row([
+            specLink(s.id),status(s),`${versionKind(s)}${s.baseId?`<div>${specLink(s.baseId)}</div>`:''}`,esc(s.description),
         ])), specs.length ? 'По этим условиям ничего не найдено. Измените название или выберите все версии.' : 'Составов пока нет. Нажмите «Создать состав» и добавьте первый компонент.');
     };
     drawList();
     container.querySelector('#bom-search').oninput = drawList;
     container.querySelector('#bom-status').onchange = drawList;
     container.querySelector('[data-register]').onclick = () => {
-        const available = nodes.filter(n=>n.nodeKind!=='GROUP' && !products.some(p=>p.id===n.id));
+        const available = catalogProducts.filter(n=>!products.some(p=>p.id===n.id));
         if (!available.length || !units.length) {
             toast.info('Сначала добавьте изделие в справочник и единицу измерения в соответствующем разделе.'); return;
         }
-        act(()=>form({title:'Добавить изделие или материал',subtitle:'Выберите существующую запись справочника, чтобы использовать её в составах.',fields:[
+        act(()=>form({title:'Добавить изделие или материал',subtitle:'Выберите модель или изделие из классификатора. Оно станет доступно и для создания состава, и для добавления в другой состав.',fields:[
             {name:'nodeId',label:'Запись справочника',type:'select',required:true,full:true,options:available.map(n=>({value:n.id,label:`${n.name} — ${n.code}`}))},
             {name:'kind',label:'Как получаем или используем',type:'select',required:true,options:Object.entries(kinds).map(([value,label])=>({value,label})),hint:kindHints.ASSEMBLY},
-            {name:'unitId',label:'В чём измеряем количество',type:'select',required:true,options:units.map(u=>({value:u.id,label:`${u.name} — ${u.code}`})),hint:'Для болтов — штуки, для стали — килограммы. Эта единица будет использоваться во всех составах.'},
+            {name:'unitId',label:'В чём измеряем количество',type:'select',required:true,options:[],hint:'Количество в составах рассчитывается в единице, заданной в классификаторе.'},
         ], onMount:f=>{
             f.elements.kind.onchange=()=>{ f.querySelector('[data-field="kind"] .field__hint').textContent=kindHints[f.elements.kind.value]; };
+            const updateUnit = () => {
+                const node = available.find(n=>n.id===Number(f.elements.nodeId.value));
+                const allowed = node?.unitOfMeasure ? [node.unitOfMeasure] : units;
+                f.elements.unitId.innerHTML = allowed.map(u=>`<option value="${u.id}">${esc(u.name)} — ${esc(u.code)}</option>`).join('');
+            };
+            f.elements.nodeId.onchange = updateUnit;
+            updateUnit();
         },onSubmit:v=>api.bom.register({nodeId:Number(v.nodeId),kind:v.kind,unitId:Number(v.unitId)})}));
     };
     const create = base => {
-        if (!products.length) { toast.info('Сначала добавьте изделие или материал кнопкой рядом.'); return; }
+        if (!productOptions.length) { toast.info('Сначала создайте товар в классификаторе.'); return; }
         act(()=>form({title:base?'Создать состав на основе существующего':'Создать состав изделия',submitLabel:'Создать черновик',subtitle:base?'Для новой версии оставьте то же изделие. Для модификации выберите другое.':'Сначала создадим черновик, затем добавим его компоненты.',fields:[
             {name:'productId',label:'Для какого изделия',type:'select',required:true,options:productOptions,value:base?.productId},
             {name:'baseId',label:'Взять компоненты из готового состава',type:'select',value:base?.id,options:[{value:'',label:'Начать с пустого состава'},...released.map(s=>({value:s.id,label:label(s)}))],hint:'Исходный состав останется прежним. В новом черновике можно заменить, убрать и добавить компоненты.'},
-            {name:'description',label:'Что создаём или меняем',required:true,full:true,maxlength:1000,placeholder:'Например: увеличиваем толщину корпуса и добавляем краску'},
+            {name:'description',label:'Что создаём или меняем',required:true,full:true,maxlength:1000,placeholder:'Например: заменяем мышь на беспроводную и добавляем контроллер'},
         ],onSubmit:async v=>{
             const result=await api.bom.create({productId:Number(v.productId),baseId:v.baseId?Number(v.baseId):null,description:v.description});
             navigate(`/bom/${result.id}`);
@@ -126,11 +152,19 @@ export async function render(container, route) {
     const product = products.find(p=>p.id===spec.productId);
     const amount = l => `${fmtNum(l.quantity)} ${esc(unitLabel(l.unitCode))}`;
     const component = l => `<strong>${esc(l.name)}</strong><div class="text-muted">${esc(l.code)}</div>`;
-    const changeKind = l => !local.includes(l.position) ? (spec.baseId ? 'Из исходного состава' : 'В этой версии') : baseLines.some(b=>b.position===l.position) ? 'Заменён' : 'Добавлен';
+    const changeKind = l => {
+        if (!spec.baseId) return 'В этой версии';
+        if (!local.includes(l.position)) return 'Из исходного состава';
+        const before = baseLines.find(b=>b.position===l.position);
+        if (!before) return 'Добавлен';
+        if (before.componentId!==l.componentId) return 'Заменён';
+        if (before.componentSpecificationId!==l.componentSpecificationId) return 'Изменён вложенный состав';
+        return before.quantity!==l.quantity ? 'Изменено количество' : 'Переопределён';
+    };
     const changes = local.map(position=>({position,before:baseLines.find(l=>l.position===position),after:lines.find(l=>l.position===position)})).filter(c=>c.before || c.after);
     const detail=container.querySelector('#bom-detail');
     detail.innerHTML=`<section class="card"><div class="page-head"><div class="page-head__text">
-        <div class="bom-meta">${status(spec)}<span>Версия ${spec.revision}</span><span>${esc(spec.productCode)}</span></div>
+        <div class="bom-meta">${status(spec)}<span>Версия ${spec.revision}</span><span>${versionKind(spec)}</span><span>${esc(spec.productCode)}</span></div>
         <h2>${esc(spec.productName)}: состав на 1 ${esc(unitLabel(product?.unitCode || 'ед.'))}</h2>
         <p>${esc(spec.description)}</p></div><div class="page-head__actions">${editable?button('Добавить компонент','data-add',true)+button('Утвердить состав',`data-release ${!lines.length?'disabled':''}`):button('Создать новую версию / модификацию','data-revise',true)}</div></div>
         <div class="bom-notice">${editable?'Вы работаете с черновиком. Изменения сохраняются сразу. Проверьте состав и расчёт, затем утвердите версию.':'Этот состав утверждён и зафиксирован. Его можно использовать для расчётов. Для изменения создайте новую версию.'}</div>
@@ -139,9 +173,9 @@ export async function render(container, route) {
         ${table(['№','Компонент','На одну единицу изделия','Вложенный состав','Откуда взят',...(editable?['Действия']:[])],lines.map(l=>row([
             l.position,component(l),amount(l),l.componentSpecificationId?specLink(l.componentSpecificationId):'Учитываем целиком',changeKind(l),
             ...(editable?[button('Изменить',`data-edit="${l.position}"`)+button('Убрать',`data-exclude="${l.position}"`)]:[]),
-        ])), 'Состав пуст. Добавьте первый компонент: например, сталь и её количество на одно изделие.')}
-        ${changes.length ? `<details class="bom-changes" ${spec.baseId?'open':''}><summary>Изменения этой версии (${changes.length})</summary>
-        <p>Здесь видны и убранные компоненты. ${editable?'Возврат к исходному составу действует только на выбранную строку.':''}</p>
+        ])), 'Состав пуст. Добавьте первый компонент и укажите его количество.')}
+        ${changes.length && (spec.baseId || editable) ? `<details class="bom-changes" ${spec.baseId?'open':''}><summary>Изменения этой версии (${changes.length})</summary>
+        ${editable?'<p>Возврат к исходному составу действует только на выбранную строку.</p>':''}
         ${table(['№','Было в исходном составе','Стало в этой версии',...(editable?['Действие']:[])],changes.map(c=>row([
             c.position,c.before?`${component(c.before)}${amount(c.before)}${c.before.componentSpecificationId?`<div>${specLink(c.before.componentSpecificationId)}</div>`:''}`:'Не было',
             c.after?`${component(c.after)}${amount(c.after)}${c.after.componentSpecificationId?`<div>${specLink(c.after.componentSpecificationId)}</div>`:''}`:'Убран из состава',
@@ -149,27 +183,27 @@ export async function render(container, route) {
         ])))}</details>`:''}
         <div class="bom-meta bom-detail-footer"><span>Создан: ${fmtDate(spec.createdAt)}${spec.releasedAt?` · Утверждён: ${fmtDate(spec.releasedAt)}`:''}</span>${editable?button('Удалить черновик','data-remove'):''}</div>
         </section>
-        <section class="card"><h2>Сколько понадобится для изготовления?</h2>
-        <p>Количество умножается на расход каждого компонента, включая вложенные составы. Например, на 3 корпуса с 2 кронштейнами в каждом нужно 6 кронштейнов.</p>
-        <form id="bom-calc" class="bom-filters"><label class="field"><span>Сколько изготовить (${esc(unitLabel(product?.unitCode || 'ед.'))})</span><input class="input" name="quantity" inputmode="decimal" value="1" required aria-describedby="bom-quantity-hint"><span class="field__hint" id="bom-quantity-hint">Число больше нуля. Дробь можно вводить через запятую.</span></label>
+        <section class="card"><h2>Сколько понадобится компонентов?</h2>
+        <p>Система умножает нормы на выбранное количество и раскрывает вложенные составы. Например, на 10 игровых наборов с одной клавиатурой в каждом нужно 10 клавиатур.</p>
+        <form id="bom-calc" class="bom-filters"><label class="field"><span>Количество комплектов или изделий (${esc(unitLabel(product?.unitCode || 'ед.'))})</span><input class="input" name="quantity" inputmode="decimal" value="1" required aria-describedby="bom-quantity-hint"><span class="field__hint" id="bom-quantity-hint">Число больше нуля. Дробь можно вводить через запятую.</span></label>
         <label class="field"><span>Что посчитать</span><select class="select" name="classId"><option value="">Все компоненты</option>${nodes.filter(n=>n.nodeKind==='GROUP').map(n=>`<option value="${n.id}">${'— '.repeat(n.depth)}${esc(n.name)} (${esc(n.code)})</option>`).join('')}</select><span class="field__hint">Группа из справочника и все её подгруппы.</span></label>
         <button class="btn btn--primary" type="submit">Рассчитать потребность</button></form><div id="bom-results" aria-live="polite"></div></section>`;
     const lineForm = line => act(()=>form({title:line?'Изменить компонент':'Добавить компонент',submitLabel:line?'Сохранить изменение':'Добавить в состав',subtitle:`Количество на 1 ${unitLabel(product?.unitCode || 'ед.')} изделия «${spec.productName}».`,fields:[
         {name:'position',label:'Номер строки',type:'number',min:1,step:1,required:true,value:line?.position??Math.max(0,...lines.map(l=>l.position),...local)+1,hint:'Номер предложен автоматически. Разные строки могут содержать один и тот же компонент.'},
         {name:'componentId',label:'Что входит в состав',type:'select',required:true,options:productOptions.filter(o=>o.value!==spec.productId),value:line?.componentId},
         {name:'quantity',label:'Количество на одну единицу изделия',required:true,value:line?.quantity??'1',hint:'Положительное число, до 6 знаков после запятой.'},
-        {name:'componentSpecificationId',label:'Как учитывать этот компонент',type:'select',value:line?.componentSpecificationId,options:[],hint:'Если компонент изготавливается из других компонентов, выберите его утверждённый состав. Иначе он учитывается целиком, без вложенных материалов.'},
+        {name:'componentSpecificationId',label:'Как учитывать этот компонент',type:'select',value:line?.componentSpecificationId,options:[],hint:'Выберите утверждённую версию, если нужно раскрыть вложенный состав. Иначе компонент учитывается целиком.'},
     ],onMount:f=>{
         f.elements.position.readOnly=Boolean(line);
         const updateComponent=()=>{
             const id=Number(f.elements.componentId.value);
-            const p=products.find(p=>p.id===id);
+            const unit=catalogProducts.find(n=>n.id===id)?.unitOfMeasure;
             const versionSelect=f.elements.componentSpecificationId;
             const previous=versionSelect.value || (line?.componentId===id ? String(line.componentSpecificationId || '') : '');
             const available=released.filter(s=>s.productId===id);
             versionSelect.innerHTML=`<option value="">Учитывать целиком — без вложенного состава</option>${available.map(s=>`<option value="${s.id}">${esc(label(s))}</option>`).join('')}`;
             versionSelect.value=available.some(s=>String(s.id)===previous)?previous:'';
-            f.querySelector('[data-field="quantity"] .field__hint').textContent=p?`Единица: ${unitLabel(p.unitCode)}. Например, 0,5. До 6 знаков после запятой.`:'Выберите компонент.';
+            f.querySelector('[data-field="quantity"] .field__hint').textContent=unit?`Единица: ${unitLabel(unit.code)}. Например, 0,5. До 6 знаков после запятой.`:'Укажите единицу в карточке товара.';
         };
         f.elements.componentId.onchange=updateComponent;
         updateComponent();
@@ -238,7 +272,7 @@ export async function render(container, route) {
             const groupName=nodes.find(n=>n.id===classId)?.name || 'Все компоненты';
             results.innerHTML=`<h3>Потребность на ${fmtNum(quantity)} ${esc(unitLabel(product?.unitCode || 'ед.'))}: ${esc(spec.productName)}</h3>
                 <p>${esc(groupName)}${editable?' · Расчёт по текущему черновику':''}. Одинаковые компоненты из разных ветвей сложены.</p>
-                <div class="bom-notice">Сборки и материалы внутри них показаны отдельно. Не складывайте их между собой: это разные уровни состава, а не общий список закупки.</div>
+                ${explosion.some(e=>e.depth>1)?'<div class="bom-notice">В расчёте отдельно показаны вложенные сборки и их компоненты. Путь каждой позиции виден в раскрытии состава.</div>':''}
                 ${table(['Что понадобится','Сколько всего','Единица измерения'],totals.map(t=>row([`${esc(t.name)}<div class="text-muted">${esc(t.code)}</div>`,fmtNum(t.totalQuantity),esc(unitLabel(t.unitCode))])), 'В выбранной группе нет компонентов этого состава. Выберите другую группу или «Все компоненты».')}
                 <details class="bom-changes"><summary>Как получился результат: все уровни состава (${explosion.length} строк)</summary>
                 <p>Путь 1 → 2 означает: компонент из строки 2 внутри сборки из строки 1. Количество на партию учитывает весь путь от исходного изделия.</p>

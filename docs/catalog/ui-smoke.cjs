@@ -8,12 +8,14 @@ if(!url)throw new Error('Укажите URL отдельного тестово�
  const browser=await chromium.launch({headless:true});
  const page=await browser.newPage({viewport:{width:1500,height:1050}});
  const errors=[];page.on('pageerror',e=>errors.push(e.message));
- let original,model,color;
+ let original,model,color,empty;
  const flatten=ns=>ns.flatMap(n=>[n,...flatten(n.children||[])]);
  try{
   const roots=await (await page.request.get(url+'/api/v1/nodes/tree')).json();
   const nodes=flatten(roots);model=nodes.find(n=>n.code==='PHONES-APPLE-IP16');
-  const sku=nodes.find(n=>n.code==='SKU-IP16-BLACK-128'),empty=nodes.find(n=>n.code==='DEMO-EMPTY-GROUP');
+  const sku=nodes.find(n=>n.code==='SKU-IP16-BLACK-128');
+  const created=await page.request.post(url+'/api/v1/nodes',{data:{code:'CHECK-EMPTY-'+Date.now(),name:'Пустая группа для проверки',nodeKind:'GROUP'}});
+  assert(created.ok());empty=await created.json();
   assert.equal(model.nodeKind,'MODEL');assert.equal(sku.nodeKind,'PRODUCT');assert.equal(empty.nodeKind,'GROUP');assert(empty.isTerminal);
   const effective=await (await page.request.get(url+`/api/v1/nodes/${model.id}/enumerations/effective`)).json();
   color=effective.find(e=>e.enumerationCode==='PHONE-COLORS');
@@ -49,6 +51,7 @@ if(!url)throw new Error('Укажите URL отдельного тестово�
   assert.deepEqual(errors,[]);
   console.log('PASS: модель с несколькими вариантами; конкретный цвет исполнения; защита ограничения существующих исполнений; явный тип пустой группы; форма типа записи.');
  }finally{
+  if(empty)await page.request.delete(url+`/api/v1/nodes/${empty.id}`);
   if(original&&model&&color)await page.request.put(url+`/api/v1/nodes/${model.id}/enumeration-bindings/${color.enumerationId}`,{data:{allowedValueIds:original.restricted?original.allowedValueIds:null}});
   await browser.close();
  }

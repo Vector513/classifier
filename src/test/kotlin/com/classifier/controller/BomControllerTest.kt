@@ -41,13 +41,13 @@ class BomControllerTest {
     @Autowired lateinit var service: BomService
     @Autowired lateinit var initializer: BomInitializer
     private var root = 0L
-    private var materials = 0L
+    private var supplies = 0L
     private var assembly = 0L
     private var subassembly = 0L
     private var variant = 0L
-    private var steel = 0L
-    private var bolt = 0L
-    private var kg = 0L
+    private var cable = 0L
+    private var clip = 0L
+    private var meter = 0L
     private var pcs = 0L
 
     private fun node(code: String, parent: Long? = root): Long = jdbc.queryForObject("""
@@ -70,21 +70,21 @@ class BomControllerTest {
         // Отдельная БД Testcontainers; очистка только тестовых таблиц.
         jdbc.execute("TRUNCATE bom_line,bom_specification,bom_product,classifier_node,unit_of_measure RESTART IDENTITY CASCADE")
         pcs=jdbc.queryForObject("INSERT INTO unit_of_measure(code,name) VALUES ('PCS','штуки') RETURNING id",Long::class.java)!!
-        kg=jdbc.queryForObject("INSERT INTO unit_of_measure(code,name) VALUES ('KG','килограммы') RETURNING id",Long::class.java)!!
+        meter=jdbc.queryForObject("INSERT INTO unit_of_measure(code,name) VALUES ('M','метры') RETURNING id",Long::class.java)!!
         root=node("PRODUCTS",null)
-        materials=node("MATERIALS")
-        val metals=node("METALS",materials)
+        supplies=node("SUPPLIES")
+        val cables=node("CABLES",supplies)
         assembly=product("ASSEMBLY",ProductKind.ASSEMBLY)
         subassembly=product("SUBASSEMBLY",ProductKind.ASSEMBLY)
         variant=product("VARIANT",ProductKind.ASSEMBLY)
-        steel=product("STEEL",ProductKind.MATERIAL,metals,kg)
-        bolt=product("BOLT",ProductKind.PURCHASED)
+        cable=product("NETWORK-CABLE",ProductKind.MATERIAL,cables,meter)
+        clip=product("CABLE-CLIP",ProductKind.PURCHASED)
     }
     private fun base(): Long {
         val sub=draft(subassembly)
-        line(sub,1,steel,"0.5"); line(sub,2,bolt,"3"); service.release(sub)
+        line(sub,1,cable,"0.5"); line(sub,2,clip,"3"); service.release(sub)
         val top=draft(assembly)
-        line(top,1,subassembly,"2",sub); line(top,2,steel,"0.25"); line(top,3,bolt,"1")
+        line(top,1,subassembly,"2",sub); line(top,2,cable,"0.25"); line(top,3,clip,"1")
         service.release(top)
         return top
     }
@@ -96,35 +96,35 @@ class BomControllerTest {
         assertEquals(listOf(1,1),all[1].path)
         assertEquals(2,all[1].depth)
         val totals=service.totals(id,BigDecimal("3"),root).associateBy { it.componentId }
-        checkAmount(totals.getValue(steel).totalQuantity,"3.75")
-        checkAmount(totals.getValue(bolt).totalQuantity,"21")
+        checkAmount(totals.getValue(cable).totalQuantity,"3.75")
+        checkAmount(totals.getValue(clip).totalQuantity,"21")
         checkAmount(totals.getValue(subassembly).totalQuantity,"6")
-        val filtered=service.totals(id,BigDecimal("3"),materials)
-        assertEquals(listOf(steel),filtered.map { it.componentId })
-        assertEquals("KG",filtered.single().unitCode)
-        mvc.perform(get("/api/v1/bom/specifications/$id/totals").param("quantity","3").param("classId",materials.toString()))
+        val filtered=service.totals(id,BigDecimal("3"),supplies)
+        assertEquals(listOf(cable),filtered.map { it.componentId })
+        assertEquals("M",filtered.single().unitCode)
+        mvc.perform(get("/api/v1/bom/specifications/$id/totals").param("quantity","3").param("classId",supplies.toString()))
             .andExpect(status().isOk).andExpect(jsonPath("$[0].totalQuantity").value(3.75))
     }
     @Test fun `modification replaces excludes and restores inherited positions without copying base`() {
         val base=base(); val changed=draft(variant,base)
         assertEquals(0,jdbc.queryForObject("SELECT count(*) FROM bom_line WHERE specification_id=?",Int::class.java,changed))
-        line(changed,2,steel,"1"); service.exclude(changed,3)
-        checkAmount(service.totals(changed,BigDecimal.ONE,materials).single().totalQuantity,"2")
+        line(changed,2,cable,"1"); service.exclude(changed,3)
+        checkAmount(service.totals(changed,BigDecimal.ONE,supplies).single().totalQuantity,"2")
         assertEquals(2,service.lines(changed).size)
         service.reset(changed,2); service.reset(changed,3)
-        checkAmount(service.totals(changed,BigDecimal.ONE,materials).single().totalQuantity,"1.25")
+        checkAmount(service.totals(changed,BigDecimal.ONE,supplies).single().totalQuantity,"1.25")
         service.release(changed)
-        val second=draft(variant,changed); line(second,2,steel,"2")
-        checkAmount(service.totals(second,BigDecimal.ONE,materials).single().totalQuantity,"3")
-        checkAmount(service.totals(base,BigDecimal.ONE,materials).single().totalQuantity,"1.25")
+        val second=draft(variant,changed); line(second,2,cable,"2")
+        checkAmount(service.totals(second,BigDecimal.ONE,supplies).single().totalQuantity,"3")
+        checkAmount(service.totals(base,BigDecimal.ONE,supplies).single().totalQuantity,"1.25")
     }
     @Test fun `released history and pinned child versions are immutable`() {
         val base=base()
-        requestLine(base,1,"""{"componentId":$steel,"quantity":4}""").andExpect(status().isConflict)
+        requestLine(base,1,"""{"componentId":$cable,"quantity":4}""").andExpect(status().isConflict)
         mvc.perform(delete("/api/v1/bom/specifications/$base")).andExpect(status().isConflict)
         val child=service.lines(base).first().componentSpecificationId!!
-        val revised=draft(subassembly,child); line(revised,1,steel,"10"); service.release(revised)
-        checkAmount(service.totals(base,BigDecimal.ONE,materials).single().totalQuantity,"1.25")
+        val revised=draft(subassembly,child); line(revised,1,cable,"10"); service.release(revised)
+        checkAmount(service.totals(base,BigDecimal.ONE,supplies).single().totalQuantity,"1.25")
         val next=draft(assembly,base); assertEquals(2,service.get(next).revision)
         assertThrows(org.springframework.dao.DataIntegrityViolationException::class.java) {
             jdbc.update("UPDATE bom_line SET quantity=9 WHERE specification_id=?",base)
@@ -134,7 +134,7 @@ class BomControllerTest {
         }
     }
     @Test fun `physical product cycle through older released revision is rejected and rolled back`() {
-        val a=draft(assembly); line(a,1,steel,"1"); service.release(a)
+        val a=draft(assembly); line(a,1,cable,"1"); service.release(a)
         val b=draft(subassembly); line(b,1,assembly,"1",a); service.release(b)
         val revised=draft(assembly,a)
         requestLine(revised,2,"""{"componentId":$subassembly,"componentSpecificationId":$b,"quantity":1}""")
@@ -145,9 +145,9 @@ class BomControllerTest {
     @Test fun `invalid references quantities positions and empty release return client errors`() {
         val id=draft(assembly)
         for (qty in listOf("0","-1","0.0000001","10000000000000")) {
-            requestLine(id,1,"""{"componentId":$steel,"quantity":$qty}""").andExpect(status().isUnprocessableEntity)
+            requestLine(id,1,"""{"componentId":$cable,"quantity":$qty}""").andExpect(status().isUnprocessableEntity)
         }
-        requestLine(id,0,"""{"componentId":$steel,"quantity":1}""").andExpect(status().isUnprocessableEntity)
+        requestLine(id,0,"""{"componentId":$cable,"quantity":1}""").andExpect(status().isUnprocessableEntity)
         requestLine(id,1,"""{"componentId":999999,"quantity":1}""").andExpect(status().isNotFound)
         mvc.perform(post("/api/v1/bom/specifications/$id/release")).andExpect(status().isUnprocessableEntity)
         mvc.perform(get("/api/v1/bom/specifications/$id/explosion").param("quantity","0")).andExpect(status().isUnprocessableEntity)
@@ -155,58 +155,118 @@ class BomControllerTest {
         val child=draft(subassembly)
         requestLine(id,1,"""{"componentId":$subassembly,"componentSpecificationId":$child,"quantity":1}""")
             .andExpect(status().isUnprocessableEntity)
-        line(child,1,steel,"1"); service.release(child)
-        requestLine(id,1,"""{"componentId":$steel,"componentSpecificationId":$child,"quantity":1}""")
+        line(child,1,cable,"1"); service.release(child)
+        requestLine(id,1,"""{"componentId":$cable,"componentSpecificationId":$child,"quantity":1}""")
             .andExpect(status().isUnprocessableEntity)
     }
     @Test fun `new draft registration deletion and missing resources follow REST contract`() {
         mvc.perform(post("/api/v1/bom/products").contentType(MediaType.APPLICATION_JSON)
             .content("""{"nodeId":$root,"kind":"ASSEMBLY","unitId":$pcs}""")).andExpect(status().isUnprocessableEntity)
         mvc.perform(post("/api/v1/bom/products").contentType(MediaType.APPLICATION_JSON)
-            .content("""{"nodeId":$steel,"kind":"MATERIAL","unitId":$kg}""")).andExpect(status().isConflict)
+            .content("""{"nodeId":$cable,"kind":"MATERIAL","unitId":$meter}""")).andExpect(status().isConflict)
         val response=mvc.perform(post("/api/v1/bom/specifications").contentType(MediaType.APPLICATION_JSON)
             .content("""{"productId":$assembly,"description":"Первая версия"}"""))
             .andExpect(status().isCreated).andReturn().response.contentAsString
         val id=json.readTree(response)["id"].asLong()
-        requestLine(id,1,"""{"componentId":$steel,"quantity":0.000001}""").andExpect(status().isOk)
+        requestLine(id,1,"""{"componentId":$cable,"quantity":0.000001}""").andExpect(status().isOk)
         mvc.perform(delete("/api/v1/bom/specifications/$id")).andExpect(status().isNoContent)
         mvc.perform(get("/api/v1/bom/specifications/$id")).andExpect(status().isNotFound)
-        mvc.perform(delete("/api/v1/nodes/$steel")).andExpect(status().isConflict)
+        mvc.perform(delete("/api/v1/nodes/$cable")).andExpect(status().isConflict)
     }
     @Test fun `schema initialization is repeatable without resetting history`() {
         val base=base()
         initializer.run(org.springframework.boot.DefaultApplicationArguments())
         assertEquals("RELEASED",service.get(base).status)
-        checkAmount(service.totals(base,BigDecimal.ONE,materials).single().totalQuantity,"1.25")
+        checkAmount(service.totals(base,BigDecimal.ONE,supplies).single().totalQuantity,"1.25")
     }
 
-    @Test fun `demo correction preserves recipe and does not repeat or restore deleted drafts`() {
-        jdbc.execute("DELETE FROM schema_migration WHERE name LIKE 'bom-demo%' OR name IN ('catalog-demo-v2','catalog-parameters-demo-v3')")
+    @Test fun `electronics demo loads five released pairs and preserves changes on restart`() {
+        val existing = base()
+        val phone = product("PHONES-SAMSUNG-S24", ProductKind.PART)
+        jdbc.update("UPDATE classifier_node SET name='Мой Galaxy' WHERE id=?", phone)
+        jdbc.update("DELETE FROM schema_migration WHERE name='bom-electronics-demo-v1'")
         initializer.seedDemo()
+
+        val demos = service.specifications().filter { it.productCode.startsWith("BOM-EL-") }
+        val released = demos.filter { it.status == "RELEASED" }.associateBy { it.productCode.removePrefix("BOM-EL-") }
+        assertEquals(11, released.size)
+        val variants = mapOf(
+            "PC-PRO" to ("PC-STD" to listOf(3,4)),
+            "HOME-PRO" to ("HOME-START" to listOf(2,3,4,6)),
+            "GAME-PREMIUM" to ("GAME-STD" to listOf(2,3,5)),
+            "SEC-PRO" to ("SEC-STD" to listOf(1,3,5)),
+            "PHONE-PREMIUM" to ("PHONE-STD" to listOf(5,6))
+        )
+        for ((code, pair) in variants) {
+            val (baseCode, overrides) = pair
+            val modification = released.getValue(code)
+            val original = released.getValue(baseCode)
+            assertEquals(original.id, modification.baseId)
+            assertEquals(1, modification.revision)
+            assertEquals(overrides, service.localPositions(modification.id))
+            assertEquals(service.lines(original.id).filterNot { it.position in overrides },
+                service.lines(modification.id).filterNot { it.position in overrides })
+        }
+
+        val gamingSet = released.getValue("GAME-STD")
+        val gameClass = service.products().first { it.code == "BOM-EL-GAME-KEYBOARD" }.id
+        checkAmount(service.totals(gamingSet.id, BigDecimal.TEN, gameClass).single().totalQuantity, "10")
+        val pc = released.getValue("PC-PRO")
+        val fan = service.explode(pc.id, BigDecimal("3")).single { it.path == listOf(7,1) }
+        assertEquals("BOM-EL-PC-FAN", fan.line.code)
+        checkAmount(fan.totalQuantity, "6")
+        val cableTotal = service.explode(released.getValue("SEC-PRO").id, BigDecimal("3")).single { it.path == listOf(5) }
+        assertEquals("M", cableTotal.line.unitCode)
+        checkAmount(cableTotal.totalQuantity, "120")
+        val reusedPhone = service.lines(released.getValue("PHONE-PREMIUM").id).first()
+        assertEquals(phone, reusedPhone.componentId)
+        assertEquals("Мой Galaxy", reusedPhone.name)
+        assertEquals(ProductKind.PART, service.products().single { it.id == phone }.kind)
+
+        val demoDraft = demos.single { it.status == "DRAFT" }
+        assertEquals(2, demoDraft.revision)
+        assertEquals(gamingSet.id, demoDraft.baseId)
+        assertEquals(listOf(1,2,3,5), service.lines(demoDraft.id).map { it.position })
+        service.delete(demoDraft.id)
+        jdbc.update("UPDATE classifier_node SET name='Мой игровой набор' WHERE id=?", gamingSet.productId)
+        initializer.seedDemo()
+        assertEquals(demos.map { it.id }.toSet() - demoDraft.id,
+            service.specifications().filter { it.productCode.startsWith("BOM-EL-") }.map { it.id }.toSet())
+        assertEquals("Мой игровой набор", service.get(gamingSet.id).productName)
+        checkAmount(service.totals(existing,BigDecimal.ONE,supplies).single().totalQuantity,"1.25")
+    }
+
+    @Test fun `catalog parameter demo preserves exclusions and edited values`() {
+        jdbc.update("DELETE FROM schema_migration WHERE name='catalog-parameters-demo-v3'")
+        fun loadFixture() = jdbc.execute(org.springframework.core.io.ClassPathResource("catalog-parameters-demo.sql")
+            .getContentAsString(Charsets.UTF_8))
+        loadFixture()
         val kitId=jdbc.queryForObject("SELECT id FROM classifier_node WHERE code='DEMO-KIT-SIX'",Long::class.java)!!
         val lengthId=jdbc.queryForObject("SELECT id FROM numeric_parameter WHERE code='DEMO-LENGTH'",Long::class.java)!!
         val surfaceId=jdbc.queryForObject("SELECT id FROM enumeration WHERE code='DEMO-SURFACE'",Long::class.java)!!
         assertEquals(false,jdbc.queryForObject("SELECT catalog_numeric_applicable(?,?)",Boolean::class.java,kitId,lengthId))
         assertEquals(false,jdbc.queryForObject("SELECT catalog_enum_applicable(?,?)",Boolean::class.java,kitId,surfaceId))
-        val blankId=jdbc.queryForObject("SELECT id FROM classifier_node WHERE code='DEMO-BLANK-MATTE'",Long::class.java)!!
-        jdbc.update("UPDATE node_numeric_value SET value=0.7 WHERE classifier_node_id=? AND numeric_parameter_id=?",blankId,lengthId)
-        val bracket = service.products().single { it.code == "BOM-BRACKET" }
-        assertEquals(ProductKind.ASSEMBLY, bracket.kind)
-        // Имитируем прежний демонстрационный набор до исправления типа.
-        jdbc.update("UPDATE bom_product SET kind='PART' WHERE node_id=?", bracket.id)
-        jdbc.update("DELETE FROM schema_migration WHERE name='bom-demo-bracket-kind-v2'")
-        initializer.seedDemo()
-        assertEquals(ProductKind.ASSEMBLY, service.products().single { it.id == bracket.id }.kind)
-        assertEquals(0,BigDecimal("0.7").compareTo(jdbc.queryForObject("SELECT value FROM node_numeric_value WHERE classifier_node_id=? AND numeric_parameter_id=?",BigDecimal::class.java,blankId,lengthId)))
-        val housing = service.specifications().single { it.productCode == "BOM-HOUSING" && it.revision == 1 }
-        val materialClass = jdbc.queryForObject("SELECT id FROM classifier_node WHERE code='BOM-MATERIALS'", Long::class.java)!!
-        checkAmount(service.totals(housing.id, BigDecimal("3"), materialClass).single().totalQuantity, "3.75")
-        val draft = service.specifications().single { it.productCode == "BOM-HOUSING" && it.status == "DRAFT" }
-        service.delete(draft.id)
-        jdbc.update("UPDATE bom_product SET kind='PURCHASED' WHERE node_id=?", bracket.id)
-        initializer.seedDemo()
-        assertEquals(ProductKind.PURCHASED, service.products().single { it.id == bracket.id }.kind)
-        assertFalse(service.specifications().any { it.id == draft.id })
-        assertEquals(3, service.specifications().count { it.productCode.startsWith("BOM-") })
+        val itemId=jdbc.queryForObject("SELECT id FROM classifier_node WHERE code='DEMO-BLANK-MATTE'",Long::class.java)!!
+        jdbc.update("UPDATE node_numeric_value SET value=0.7 WHERE classifier_node_id=? AND numeric_parameter_id=?",itemId,lengthId)
+        loadFixture()
+        val value=jdbc.queryForObject("SELECT value FROM node_numeric_value WHERE classifier_node_id=? AND numeric_parameter_id=?",
+            BigDecimal::class.java,itemId,lengthId)!!
+        checkAmount(value,"0.7")
+    }
+
+    @Test fun `catalog products are registered when used in a specification`() {
+        val phone = node("PHONE")
+        val charger = node("CHARGER")
+        jdbc.update("UPDATE classifier_node SET node_kind='MODEL',unit_of_measure_id=? WHERE id=?", pcs, phone)
+        jdbc.update("UPDATE classifier_node SET node_kind='PRODUCT',unit_of_measure_id=? WHERE id=?", pcs, charger)
+        val id = draft(phone)
+        requestLine(id,1,"""{"componentId":$root,"quantity":1}""").andExpect(status().isUnprocessableEntity)
+        requestLine(id,1,"""{"componentId":$charger,"componentSpecificationId":$id,"quantity":1}""")
+            .andExpect(status().isUnprocessableEntity)
+        assertFalse(service.products().any { it.id==charger })
+        requestLine(id,1,"""{"componentId":$charger,"quantity":2}""").andExpect(status().isOk)
+        assertEquals(ProductKind.ASSEMBLY,service.products().single { it.id==phone }.kind)
+        assertEquals(ProductKind.PURCHASED,service.products().single { it.id==charger }.kind)
+        checkAmount(service.totals(id,BigDecimal("3"),root).single().totalQuantity,"6")
     }
 }
