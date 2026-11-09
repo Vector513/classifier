@@ -17,8 +17,22 @@ const demoKits = [
     ['Комплект со смартфоном', 'PHONE-STD', 'PHONE-PREMIUM'],
 ];
 const button = (label, attrs = '', primary = false) => `<button type="button" class="btn ${primary ? 'btn--primary' : 'btn--secondary'}" ${attrs}>${label}</button>`;
-const table = (heads, rows, empty = 'Пока нет записей.') => `<div class="table-wrap"><table class="table"><thead><tr>${heads.map(h=>`<th scope="col">${h}</th>`).join('')}</tr></thead><tbody>${rows.length ? rows.map(cells=>`<tr>${cells.map((cell,i)=>`<td data-label="${esc(heads[i])}"><div class="bom-cell-value">${cell}</div></td>`).join('')}</tr>`).join('') : `<tr><td colspan="${heads.length}" class="bom-empty">${empty}</td></tr>`}</tbody></table></div>`;
-const row = cells => cells;
+function table(headers, rows, emptyMessage = 'Пока нет записей.') {
+    const header = headers.map(label => `<th scope="col">${label}</th>`).join('');
+    const body = rows.length
+        ? rows.map(cells => {
+            const values = cells.map((cell, index) =>
+                `<td data-label="${esc(headers[index])}"><div class="bom-cell-value">${cell}</div></td>`
+            ).join('');
+            return `<tr>${values}</tr>`;
+        }).join('')
+        : `<tr><td colspan="${headers.length}" class="bom-empty">${emptyMessage}</td></tr>`;
+    return `<div class="table-wrap"><table class="table"><thead><tr>${header}</tr></thead><tbody>${body}</tbody></table></div>`;
+}
+
+function isValidQuantity(quantity) {
+    return /^\d{1,13}(?:\.\d{1,6})?$/.test(quantity) && Number(quantity) > 0;
+}
 const label = s => `${s.productName} · версия ${s.revision} (${s.productCode})`;
 const flatten = (nodes, depth = 0) => nodes.flatMap(n => [{...n, depth}, ...flatten(n.children || [], depth + 1)]);
 const status = s => `<span class="bom-status ${s.status === 'DRAFT' ? 'bom-status--draft' : ''}">${s.status === 'DRAFT' ? 'Черновик' : 'Утверждён'}</span>`;
@@ -27,8 +41,8 @@ let renderVersion = 0;
 
 export async function render(container, route) {
     const version = ++renderVersion;
-    const active = () => version === renderVersion && window.location.hash === initialHash;
     const initialHash = window.location.hash;
+    const active = () => version === renderVersion && window.location.hash === initialHash;
     container.innerHTML = `<div class="page">${loadingState('Загрузка составов изделий…')}</div>`;
     const [products, specs, roots, units] = await Promise.all([
         api.bom.products(), api.bom.specifications(), api.nodes.tree(), api.units.all(),
@@ -85,7 +99,7 @@ export async function render(container, route) {
         </${selected ? 'details' : 'section'}>
         <details class="card"><summary>Зарегистрированные участники BOM (${products.length})</summary>
             <p>Любую модель или изделие из классификатора можно выбрать прямо в форме состава. Здесь показаны товары, уже зарегистрированные в BOM.</p>
-            ${table(['Название и код','Тип','Единица измерения'],products.map(p=>row([`<strong>${esc(p.name)}</strong><div class="text-muted">${esc(p.code)}</div>`,`${kinds[p.kind]}<div class="bom-cell-hint">${kindHints[p.kind]}</div>`,esc(unitLabel(p.unitCode))])), 'Список пуст. Создайте запись в справочнике и добавьте её кнопкой вверху страницы.')}
+            ${table(['Название и код','Тип','Единица измерения'],products.map(p => [`<strong>${esc(p.name)}</strong><div class="text-muted">${esc(p.code)}</div>`,`${kinds[p.kind]}<div class="bom-cell-hint">${kindHints[p.kind]}</div>`,esc(unitLabel(p.unitCode))]), 'Список пуст. Создайте запись в справочнике и добавьте её кнопкой вверху страницы.')}
             <p>Не нашли нужное название? <a href="#/tree">Откройте справочник изделий</a>, создайте запись внутри подходящей группы и вернитесь сюда.</p>
         </details>
         <details class="card"><summary>Словарь простыми словами</summary><dl class="bom-glossary">
@@ -101,9 +115,9 @@ export async function render(container, route) {
         const search = container.querySelector('#bom-search').value.trim().toLocaleLowerCase('ru');
         const filter = container.querySelector('#bom-status').value;
         const visible = specs.filter(s=>(!filter || s.status===filter) && `${s.productName} ${s.productCode}`.toLocaleLowerCase('ru').includes(search));
-        container.querySelector('#bom-specs').innerHTML = table(['Изделие и версия','Состояние','Комплектация','Что изменилось'],visible.map(s=>row([
+        container.querySelector('#bom-specs').innerHTML = table(['Изделие и версия','Состояние','Комплектация','Что изменилось'],visible.map(s => [
             specLink(s.id),status(s),`${versionKind(s)}${s.baseId?`<div>${specLink(s.baseId)}</div>`:''}`,esc(s.description),
-        ])), specs.length ? 'По этим условиям ничего не найдено. Измените название или выберите все версии.' : 'Составов пока нет. Нажмите «Создать состав» и добавьте первый компонент.');
+        ]), specs.length ? 'По этим условиям ничего не найдено. Измените название или выберите все версии.' : 'Составов пока нет. Нажмите «Создать состав» и добавьте первый компонент.');
     };
     drawList();
     container.querySelector('#bom-search').oninput = drawList;
@@ -170,17 +184,17 @@ export async function render(container, route) {
         <div class="bom-notice">${editable?'Вы работаете с черновиком. Изменения сохраняются сразу. Проверьте состав и расчёт, затем утвердите версию.':'Этот состав утверждён и зафиксирован. Его можно использовать для расчётов. Для изменения создайте новую версию.'}</div>
         ${spec.baseId?`<p>Исходный состав: ${specLink(spec.baseId)}. Компоненты без изменений взяты из него.</p>`:''}
         <h3>Из чего состоит изделие</h3><p>Количество в каждой строке указано на одну единицу изделия. Для вложенной сборки можно открыть её собственный состав.</p>
-        ${table(['№','Компонент','На одну единицу изделия','Вложенный состав','Откуда взят',...(editable?['Действия']:[])],lines.map(l=>row([
+        ${table(['№','Компонент','На одну единицу изделия','Вложенный состав','Откуда взят',...(editable?['Действия']:[])],lines.map(l => [
             l.position,component(l),amount(l),l.componentSpecificationId?specLink(l.componentSpecificationId):'Учитываем целиком',changeKind(l),
             ...(editable?[button('Изменить',`data-edit="${l.position}"`)+button('Убрать',`data-exclude="${l.position}"`)]:[]),
-        ])), 'Состав пуст. Добавьте первый компонент и укажите его количество.')}
+        ]), 'Состав пуст. Добавьте первый компонент и укажите его количество.')}
         ${changes.length && (spec.baseId || editable) ? `<details class="bom-changes" ${spec.baseId?'open':''}><summary>Изменения этой версии (${changes.length})</summary>
         ${editable?'<p>Возврат к исходному составу действует только на выбранную строку.</p>':''}
-        ${table(['№','Было в исходном составе','Стало в этой версии',...(editable?['Действие']:[])],changes.map(c=>row([
+        ${table(['№','Было в исходном составе','Стало в этой версии',...(editable?['Действие']:[])],changes.map(c => [
             c.position,c.before?`${component(c.before)}${amount(c.before)}${c.before.componentSpecificationId?`<div>${specLink(c.before.componentSpecificationId)}</div>`:''}`:'Не было',
             c.after?`${component(c.after)}${amount(c.after)}${c.after.componentSpecificationId?`<div>${specLink(c.after.componentSpecificationId)}</div>`:''}`:'Убран из состава',
             ...(editable?[button(c.before?'Вернуть как было':'Отменить добавление',`data-reset="${c.position}"`)]:[]),
-        ])))}</details>`:''}
+        ]))}</details>`:''}
         <div class="bom-meta bom-detail-footer"><span>Создан: ${fmtDate(spec.createdAt)}${spec.releasedAt?` · Утверждён: ${fmtDate(spec.releasedAt)}`:''}</span>${editable?button('Удалить черновик','data-remove'):''}</div>
         </section>
         <section class="card"><h2>Сколько понадобится компонентов?</h2>
@@ -211,9 +225,18 @@ export async function render(container, route) {
         const position=Number(v.position);
         if (!Number.isInteger(position) || position<1 || position>2147483647) throw {field:'position',message:'Укажите целый номер строки от 1 до 2147483647.'};
         if (!line && (lines.some(l=>l.position===position) || local.includes(position))) throw {field:'position',message:'Этот номер уже занят. Выберите свободный номер или измените существующую строку.'};
-        const quantity=String(v.quantity).replace(',','.');
-        if (!/^(?:\d{1,13})(?:\.\d{1,6})?$/.test(quantity) || Number(quantity)<=0) throw {field:'quantity',message:'Введите число больше нуля: до 13 цифр перед запятой и 6 после.'};
-        await api.bom.putLine(spec.id,position,{componentId:Number(v.componentId),quantity,componentSpecificationId:v.componentSpecificationId?Number(v.componentSpecificationId):null});
+        const quantity = String(v.quantity).replace(',', '.');
+        if (!isValidQuantity(quantity)) {
+            throw {
+                field: 'quantity',
+                message: 'Введите число больше нуля: до 13 цифр перед запятой и 6 после.',
+            };
+        }
+        await api.bom.putLine(spec.id, position, {
+            componentId: Number(v.componentId),
+            quantity,
+            componentSpecificationId: v.componentSpecificationId ? Number(v.componentSpecificationId) : null,
+        });
     }}));
     detail.querySelector('[data-add]')?.addEventListener('click',()=>{
         if (!productOptions.some(o=>o.value!==spec.productId)) { toast.info('Добавьте ещё одно изделие или материал, чтобы включить его в состав.'); return; }
@@ -254,13 +277,19 @@ export async function render(container, route) {
         calcForm.querySelector('button').disabled=false;
     };
     calcForm.onsubmit=e=>{e.preventDefault();act(async()=>{
-        const request=++calculation;
-        const data=new FormData(e.target), quantity=String(data.get('quantity')).trim().replace(',','.'), classId=Number(data.get('classId'));
-        const results=detail.querySelector('#bom-results'), submit=calcForm.querySelector('button');
-        if (!/^(?:\d{1,13})(?:\.\d{1,6})?$/.test(quantity) || Number(quantity)<=0) {
-            results.textContent='Укажите количество больше нуля: до 13 цифр перед запятой и 6 после.'; calcForm.elements.quantity.focus(); return;
+        const request = ++calculation;
+        const data = new FormData(e.target);
+        const quantity = String(data.get('quantity')).trim().replace(',', '.');
+        const classId = Number(data.get('classId'));
+        const results = detail.querySelector('#bom-results');
+        const submit = calcForm.querySelector('button');
+        if (!isValidQuantity(quantity)) {
+            results.textContent = 'Укажите количество больше нуля: до 13 цифр перед запятой и 6 после.';
+            calcForm.elements.quantity.focus();
+            return;
         }
-        results.innerHTML=loadingState('Рассчитываем количество компонентов…'); submit.disabled=true;
+        results.innerHTML = loadingState('Рассчитываем количество компонентов…');
+        submit.disabled = true;
         try {
             const [explosion,groups]=await Promise.all([
                 api.bom.explode(spec.id,quantity),
@@ -273,12 +302,12 @@ export async function render(container, route) {
             results.innerHTML=`<h3>Потребность на ${fmtNum(quantity)} ${esc(unitLabel(product?.unitCode || 'ед.'))}: ${esc(spec.productName)}</h3>
                 <p>${esc(groupName)}${editable?' · Расчёт по текущему черновику':''}. Одинаковые компоненты из разных ветвей сложены.</p>
                 ${explosion.some(e=>e.depth>1)?'<div class="bom-notice">В расчёте отдельно показаны вложенные сборки и их компоненты. Путь каждой позиции виден в раскрытии состава.</div>':''}
-                ${table(['Что понадобится','Сколько всего','Единица измерения'],totals.map(t=>row([`${esc(t.name)}<div class="text-muted">${esc(t.code)}</div>`,fmtNum(t.totalQuantity),esc(unitLabel(t.unitCode))])), 'В выбранной группе нет компонентов этого состава. Выберите другую группу или «Все компоненты».')}
+                ${table(['Что понадобится','Сколько всего','Единица измерения'],totals.map(t => [`${esc(t.name)}<div class="text-muted">${esc(t.code)}</div>`,fmtNum(t.totalQuantity),esc(unitLabel(t.unitCode))]), 'В выбранной группе нет компонентов этого состава. Выберите другую группу или «Все компоненты».')}
                 <details class="bom-changes"><summary>Как получился результат: все уровни состава (${explosion.length} строк)</summary>
                 <p>Путь 1 → 2 означает: компонент из строки 2 внутри сборки из строки 1. Количество на партию учитывает весь путь от исходного изделия.</p>
-                ${table(['Путь строк','Компонент','На единицу родительского изделия','На всю партию'],explosion.map(e=>row([
+                ${table(['Путь строк','Компонент','На единицу родительского изделия','На всю партию'],explosion.map(e => [
                     e.path.join(' → '),`${'↳ '.repeat(Math.min(e.depth-1,6))}${esc(e.line.name)}<div class="text-muted">${esc(e.line.code)} · уровень ${e.depth}</div>`,amount(e.line),`${fmtNum(e.totalQuantity)} ${esc(unitLabel(e.line.unitCode))}`,
-                ])), 'В этом составе пока нет компонентов.')}</details>`;
+                ]), 'В этом составе пока нет компонентов.')}</details>`;
         } catch(err) { if(active() && request===calculation) results.textContent=err.message; }
         finally { if(request===calculation) submit.disabled=false; }
     });};
