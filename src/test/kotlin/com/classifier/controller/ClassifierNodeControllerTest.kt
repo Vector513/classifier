@@ -53,11 +53,16 @@ class ClassifierNodeControllerTest {
     private lateinit var rootNode: ClassifierNode
     private lateinit var childNode: ClassifierNode
     private lateinit var leafNode: ClassifierNode
+    @Autowired
+    lateinit var jdbc: org.springframework.jdbc.core.JdbcTemplate
+
     private lateinit var unit: UnitOfMeasure
 
     @BeforeEach
     fun setup() {
         nodeRepo.deleteAll()
+        // RouteInitializer adds PURCHASE_PRICE linked to its currency unit.
+        jdbc.execute("DELETE FROM numeric_parameter")
         unitRepo.deleteAll()
 
         unit = unitRepo.save(UnitOfMeasure(code = "PCS", name = "штуки"))

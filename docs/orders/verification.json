@@ -1,0 +1,191 @@
+{
+  "date": "2026-11-14",
+  "automatedTests": {
+    "total": 208,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "suites": [
+      {
+        "name": "com.classifier.controller.BomControllerTest",
+        "tests": "13",
+        "failures": "0",
+        "errors": "0",
+        "skipped": "0"
+      },
+      {
+        "name": "com.classifier.controller.CatalogControllerTest",
+        "tests": "12",
+        "failures": "0",
+        "errors": "0",
+        "skipped": "0"
+      },
+      {
+        "name": "com.classifier.controller.ClassifierNodeControllerTest",
+        "tests": "25",
+        "failures": "0",
+        "errors": "0",
+        "skipped": "0"
+      },
+      {
+        "name": "com.classifier.controller.EnumerationControllerTest",
+        "tests": "18",
+        "failures": "0",
+        "errors": "0",
+        "skipped": "0"
+      },
+      {
+        "name": "com.classifier.controller.NodeAttributeValueControllerTest",
+        "tests": "9",
+        "failures": "0",
+        "errors": "0",
+        "skipped": "0"
+      },
+      {
+        "name": "com.classifier.controller.OrderControllerTest",
+        "tests": "13",
+        "failures": "0",
+        "errors": "0",
+        "skipped": "0"
+      },
+      {
+        "name": "com.classifier.controller.UnitOfMeasureControllerTest",
+        "tests": "8",
+        "failures": "0",
+        "errors": "0",
+        "skipped": "0"
+      },
+      {
+        "name": "com.classifier.repository.ClassifierNodeRepositoryTest",
+        "tests": "12",
+        "failures": "0",
+        "errors": "0",
+        "skipped": "0"
+      },
+      {
+        "name": "com.classifier.repository.EnumerationClassRepositoryTest",
+        "tests": "6",
+        "failures": "0",
+        "errors": "0",
+        "skipped": "0"
+      },
+      {
+        "name": "com.classifier.repository.EnumerationRepositoryTest",
+        "tests": "6",
+        "failures": "0",
+        "errors": "0",
+        "skipped": "0"
+      },
+      {
+        "name": "com.classifier.repository.EnumerationValueRepositoryTest",
+        "tests": "6",
+        "failures": "0",
+        "errors": "0",
+        "skipped": "0"
+      },
+      {
+        "name": "com.classifier.repository.NodeAttributeValueRepositoryTest",
+        "tests": "10",
+        "failures": "0",
+        "errors": "0",
+        "skipped": "0"
+      },
+      {
+        "name": "com.classifier.repository.UnitOfMeasureRepositoryTest",
+        "tests": "4",
+        "failures": "0",
+        "errors": "0",
+        "skipped": "0"
+      },
+      {
+        "name": "com.classifier.service.ClassifierNodeServiceTest",
+        "tests": "14",
+        "failures": "0",
+        "errors": "0",
+        "skipped": "0"
+      },
+      {
+        "name": "com.classifier.service.EnumerationServiceTest",
+        "tests": "17",
+        "failures": "0",
+        "errors": "0",
+        "skipped": "0"
+      },
+      {
+        "name": "com.classifier.service.ItemSearchServiceTest",
+        "tests": "2",
+        "failures": "0",
+        "errors": "0",
+        "skipped": "0"
+      },
+      {
+        "name": "com.classifier.service.NodeAttributeValueServiceTest",
+        "tests": "12",
+        "failures": "0",
+        "errors": "0",
+        "skipped": "0"
+      },
+      {
+        "name": "com.classifier.service.TreeTraversalServiceTest",
+        "tests": "14",
+        "failures": "0",
+        "errors": "0",
+        "skipped": "0"
+      },
+      {
+        "name": "com.classifier.service.UnitOfMeasureServiceTest",
+        "tests": "7",
+        "failures": "0",
+        "errors": "0",
+        "skipped": "0"
+      }
+    ]
+  },
+  "browser": {
+    "result": "PASS: UI-конструктор правила и функции, защита существующих вариантов, заказчик, заказ, готовое изделие, неверная/верная конфигурация, печать, мобильная ширина, отсутствие ошибок JavaScript.",
+    "url": "http://127.0.0.1:8082",
+    "isolatedDatabase": true
+  },
+  "migration": {
+    "oldTables": 32,
+    "oldRows": 735,
+    "changedOrMissingOldRows": [],
+    "addedRowsInOldTables": [
+      {
+        "table": "classifier_node",
+        "rows": 3
+      },
+      {
+        "table": "enumeration",
+        "rows": 1
+      },
+      {
+        "table": "enumeration_class",
+        "rows": 1
+      },
+      {
+        "table": "enumeration_value",
+        "rows": 3
+      },
+      {
+        "table": "schema_migration",
+        "rows": 1
+      },
+      {
+        "table": "unit_of_measure",
+        "rows": 1
+      }
+    ],
+    "backup": "backups/before-lr7.sql"
+  },
+  "sql": "sql-verification.txt",
+  "dockerBuild": "SUCCESS",
+  "dockerRestart": "PASS: API overview unchanged; demonstration order rendered without JavaScript errors",
+  "finalFocusedRun": {
+    "tests": "13",
+    "failures": "0",
+    "errors": "0",
+    "skipped": "0",
+    "includes": "Non-array function arguments rejected with a client error"
+  }
+}

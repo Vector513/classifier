@@ -45,11 +45,16 @@ class UnitOfMeasureControllerTest {
     @Autowired
     lateinit var nodeRepo: ClassifierNodeRepository
 
+    @Autowired
+    lateinit var jdbc: org.springframework.jdbc.core.JdbcTemplate
+
     private lateinit var unit: UnitOfMeasure
 
     @BeforeEach
     fun setup() {
         nodeRepo.deleteAll()
+        // RouteInitializer adds PURCHASE_PRICE linked to its currency unit.
+        jdbc.execute("DELETE FROM numeric_parameter")
         unitRepo.deleteAll()
         unit = unitRepo.save(UnitOfMeasure(code = "PCS", name = "штуки"))
     }

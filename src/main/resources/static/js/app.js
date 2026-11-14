@@ -15,9 +15,11 @@ import * as units from './views/units.js';
 import * as search from './views/search.js';
 import * as bom from './views/bom.js';
 import * as manufacturing from './views/manufacturing.js';
+import * as orders from './views/orders.js';
 
 /* Сопоставление первого сегмента адреса с разделом приложения */
 const ROUTES = {
+    'orders': { view: orders, nav: '/orders', title: 'Заказы и конфигурация' },
     'routes': { view: manufacturing, nav: '/routes', title: 'Маршруты изготовления' },
     'bom': { view: bom, nav: '/bom', title: 'Составы изделий' },
     '':                  { view: dashboard,         nav: '/',                   title: 'Главная' },
