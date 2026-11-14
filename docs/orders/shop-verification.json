@@ -1,0 +1,24 @@
+{
+  "date": "2026-11-14",
+  "templates": 6,
+  "parameters": 36,
+  "rules": 20,
+  "functions": 3,
+  "variants": 18,
+  "customers": 8,
+  "orders": 8,
+  "orderLines": 23,
+  "integrationTests": {
+    "tests": "14",
+    "failures": "0",
+    "errors": "0",
+    "skipped": "0"
+  },
+  "originalRowsPreserved": 798,
+  "originalTables": 43,
+  "changedOrMissingRows": 0,
+  "repeatedSeed": "PASS: all table rows unchanged",
+  "backup": "backups/before-shop-examples.sql",
+  "browser": "PASS: 6 шаблонов, 18 допустимых исполнений, 8 заказов, 23 позиции; параметры и количества доступны через API и интерфейс, ошибок JavaScript нет.",
+  "docker": "RUNNING: http://localhost:8080/#/orders"
+}

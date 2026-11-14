@@ -182,4 +182,43 @@ class OrderControllerTest {
         assertEquals(2,scalar("SELECT count(*) FROM get_order_contents((SELECT id FROM customer_order WHERE order_number='ЛР7-0001'))"))
     }
 
+    @Test fun `shop examples cover six configurations and preserve edits on repeated load`() {
+        val groups=listOf("BOM-EL-KITS","LAPTOPS","PHONES","BOM-EL-GAME-DEVICES","BOM-EL-HOME-DEVICES","BOM-EL-SEC-DEVICES")
+        groups.forEach { code -> jdbc.update("INSERT INTO classifier_node(code,name,node_kind,sort_order,created_at,updated_at) VALUES(?,?,'GROUP',0,now(),now())",code,code) }
+        val ready=listOf("BOM-EL-PHONE-POWERBANK","BOM-EL-GAME-MAT","BOM-EL-GAME-WIRELESS-MOUSE","BOM-EL-SEC-CABLE","BOM-EL-SEC-HDD2","BOM-EL-HOME-BULB","ASSORT-USB-C-CABLE")
+        ready.forEach { code -> jdbc.update("INSERT INTO classifier_node(code,name,node_kind,unit_of_measure_id,sort_order,created_at,updated_at) VALUES(?,?,'PRODUCT',?,0,now(),now())",code,code,unit) }
+        val colors=scalar("INSERT INTO enumeration(code,name,enumeration_class_id,created_at,updated_at) SELECT 'PHONE-COLORS','Цвета',id,now(),now() FROM enumeration_class WHERE code='CON' RETURNING id")
+        listOf("BLACK","BLUE","WHITE").forEach { color -> jdbc.update("INSERT INTO enumeration_value(enumeration_id,code,name,sort_order,created_at,updated_at) VALUES(?,?,?,0,now(),now())",colors,color,color) }
+        val originalNodes=count("classifier_node")
+        fun load()=org.springframework.jdbc.datasource.init.ResourceDatabasePopulator(org.springframework.core.io.ClassPathResource("orders-shop-demo.sql")).apply {
+            setSqlScriptEncoding("UTF-8");setSeparator(org.springframework.jdbc.datasource.init.ScriptUtils.EOF_STATEMENT_SEPARATOR)
+        }.execute(dataSource)
+        load()
+        assertEquals(6,scalar("SELECT count(*) FROM product_template WHERE code LIKE 'SHOP-%'"))
+        assertEquals(18,scalar("SELECT count(*) FROM product_variant WHERE code LIKE 'SHOP-%'"))
+        assertEquals(36,scalar("SELECT count(*) FROM configuration_parameter WHERE template_id IN (SELECT id FROM product_template WHERE code LIKE 'SHOP-%')"))
+        assertEquals(20,count("configuration_rule"));assertEquals(3,count("constraint_function"))
+        assertEquals(8,count("customer_order"));assertEquals(23,count("order_line"))
+        assertEquals(originalNodes+6,count("classifier_node"))
+        assertEquals(0,scalar("SELECT count(*) FROM product_variant WHERE NOT check_constraints(template_id,orders_variant_values(id))"))
+        val cases=listOf(
+            Triple("SHOP-PC-GAMING","psu",450), Triple("SHOP-WORKPLACE-OFFICE","dock",false),
+            Triple("SHOP-PHONE-EVERYDAY","charger",false), Triple("SHOP-GAMING-WIRELESS","connection","WIRED"),
+            Triple("SHOP-HOME-FLAT","hub",false), Triple("SHOP-SECURITY-BUSINESS","channels",4),
+            Triple("SHOP-SECURITY-BUSINESS","poe_budget",30), Triple("SHOP-SECURITY-BUSINESS","storage",1024)
+        )
+        cases.forEach { (code,key,value) ->
+            val variant=jdbc.queryForMap("SELECT id,template_id FROM product_variant WHERE code=?",code)
+            val values=get("/variants/${variant["id"]}")["values"].deepCopy<com.fasterxml.jackson.databind.node.ObjectNode>()
+            values.set<JsonNode>(key,mapper.valueToTree(value))
+            assertFalse(post("/templates/${variant["template_id"]}/validate",mapOf("values" to values))["valid"].asBoolean(),code+":"+key)
+        }
+        jdbc.update("UPDATE customer SET name='Изменённый покупатель' WHERE email='anna.krylova@example.test'")
+        val before=listOf(count("classifier_node"),count("product_variant"),count("customer_order"),count("order_line"),count("expression"))
+        load()
+        assertEquals(before,listOf(count("classifier_node"),count("product_variant"),count("customer_order"),count("order_line"),count("expression")))
+        assertEquals(1,scalar("SELECT count(*) FROM customer WHERE name='Изменённый покупатель'"))
+        assertEquals(3,scalar("SELECT count(*) FROM classifier_node WHERE code IN ('G','M','P')"))
+    }
+
 }

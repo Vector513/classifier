@@ -19,10 +19,13 @@ class OrderInitializer(private val dataSource: DataSource,
     override fun run(args: ApplicationArguments) {
         load("orders-schema.sql")
         load("orders-logic.sql")
-        if (demoEnabled) load("orders-demo.sql")
+        if (demoEnabled) {
+            load("orders-demo.sql")
+            load("orders-shop-demo.sql")
+        }
     }
     private fun load(file: String) = ResourceDatabasePopulator(ClassPathResource(file)).apply {
         setSqlScriptEncoding("UTF-8")
-        setSeparator(if (file=="orders-demo.sql") ScriptUtils.EOF_STATEMENT_SEPARATOR else "^^^")
+        setSeparator(if (file.endsWith("-demo.sql")) ScriptUtils.EOF_STATEMENT_SEPARATOR else "^^^")
     }.execute(dataSource)
 }
