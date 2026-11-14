@@ -1,0 +1,65 @@
+.manufacturing-page { max-width: 1560px; margin-inline: auto; }
+.manufacturing-page [hidden] { display: none !important; }
+.route-layout { display: grid; grid-template-columns: minmax(210px, 245px) minmax(0, 1fr); gap: 20px; align-items: start; }
+.route-content { display: grid; gap: 16px; min-width: 0; }
+.route-sidebar, .route-panel { padding: 18px; min-width: 0; }
+.route-sidebar-head, .route-section-head, .route-header {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+}
+.route-sidebar h2, .route-content h2, .route-content h3 { margin: 0; }
+.route-sidebar h2, .route-content h2 { font-size: 1.2rem; }
+.route-content h3 { font-size: 1rem; }
+.route-search { display: grid; gap: 5px; margin-top: 16px; font-weight: 600; }
+.route-search input { min-width: 0; width: 100%; }
+.route-list { display: grid; gap: 6px; margin-top: 12px; }
+.route-link { display: grid; gap: 3px; padding: 10px; border-radius: 8px; text-decoration: none; overflow-wrap: anywhere; }
+.route-link span { font-size: .85rem; color: var(--text-muted, #52637c); }
+.route-link.is-selected, .route-link:hover { background: var(--primary-soft, #eaf2ff); }
+.route-tabs { display: flex; flex-wrap: wrap; gap: 6px; }
+.route-tabs a { padding: 8px 12px; border-radius: 8px; text-decoration: none; font-weight: 600; }
+.route-tabs .is-selected { background: #1d4ed8; color: #fff; }
+.route-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.route-step > summary {
+    display: flex; align-items: center; gap: 10px; padding: 14px 16px; cursor: pointer; list-style: none;
+}
+.route-step > summary::-webkit-details-marker { display: none; }
+.route-step > summary::before { content: '▸'; }
+.route-step[open] > summary::before { content: '▾'; }
+.route-step-number, .route-pill, .route-level { border-radius: 6px; padding: 3px 7px; font-size: .8rem; font-weight: 600; }
+.route-step-number { background: #1d4ed8; color: #fff; }
+.route-pill, .route-level { background: #eaf2ff; color: #1e3a8a; }
+.route-step-body { padding: 0 16px 16px; display: grid; gap: 16px; }
+.route-step-body section { border-top: 1px solid var(--border, #dbe2ed); padding-top: 12px; }
+.route-content .table-wrap { margin-top: 9px; overflow-x: auto; }
+.route-content .table td { overflow-wrap: anywhere; }
+.route-content .table th, .route-content .table td { padding: 9px; }
+.route-content .table .btn { font-size: .8rem; padding: 5px 8px; }
+.route-empty { margin: 8px 0; color: var(--text-muted, #52637c); }
+.route-calc-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(145px, 1fr)); align-items: end; gap: 12px; margin-block: 12px; }
+.route-calc-form label { display: grid; gap: 5px; min-width: 0; font-weight: 600; }
+.route-calc-form .input { width: 100%; min-width: 0; }
+.route-totals { display: grid; grid-template-columns: repeat(auto-fit, minmax(145px, 1fr)); gap: 8px; margin-block: 16px; }
+.route-totals div { display: grid; gap: 5px; border-radius: 8px; background: #eef4ff; color: #17315d; padding: 12px; }
+.route-totals strong { font-size: 1.2rem; }
+.route-alert { padding: 10px; border-radius: 6px; background: #fff2d4; color: #713f12; }
+[data-results] h3 { margin-top: 17px; }
+@media (max-width: 950px) {
+    .route-layout { grid-template-columns: minmax(0, 1fr); }
+    .route-list { grid-template-columns: repeat(auto-fit, minmax(165px, 1fr)); }
+}
+@media (max-width: 620px) {
+    .app:has(.manufacturing-page) .layout { flex-direction: column; }
+    .app:has(.manufacturing-page) .sidebar { position: static; width: 100%; height: auto; padding: 8px; }
+    .app:has(.manufacturing-page) .nav { flex-direction: row; overflow-x: auto; }
+    .app:has(.manufacturing-page) .nav__item { flex: none; white-space: nowrap; }
+    .app:has(.manufacturing-page) .sidebar__footer,
+    .app:has(.manufacturing-page) .profile__info,
+    .app:has(.manufacturing-page) .brand__subtitle { display: none; }
+    .app:has(.manufacturing-page) .topbar { padding-inline: 12px; gap: 8px; }
+    .manufacturing-page .page-head__text { min-width: 0; }
+    .route-panel, .route-sidebar { padding: 12px; }
+    .route-content .table thead { display: none; }
+    .route-content .table tr { display: block; padding: 5px 0; border-bottom: 1px solid var(--border, #dbe2ed); }
+    .route-content .table td { display: grid; grid-template-columns: minmax(0, 100px) minmax(0, 1fr); gap: 8px; }
+    .route-content .table td::before { content: attr(data-label); font-weight: 600; }
+}

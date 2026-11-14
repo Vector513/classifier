@@ -29,6 +29,12 @@ data class CreateBomSpecificationRequest(
     val description: String
 )
 
+data class UpdateBomDescriptionRequest(
+    @field:NotBlank
+    @field:Size(max = 1000)
+    val description: String
+)
+
 data class BomLineRequest(
     @field:Positive val componentId: Long,
     @field:Positive val componentSpecificationId: Long? = null,
@@ -86,4 +92,23 @@ data class BomTotalResponse(
     val name: String,
     val unitCode: String,
     val totalQuantity: BigDecimal
+)
+
+data class BomCostComponent(
+    val id: Long,
+    val code: String,
+    val name: String
+)
+
+data class BomCostResponse(
+    val pricedSubtotal: String?,
+    val missingPrices: List<BomCostComponent>,
+    val positions: List<BomPositionCost>
+)
+
+data class BomPositionCost(
+    val position: Int,
+    val unitPrice: String?,
+    val pricedSubtotal: String?,
+    val missingPrice: Boolean
 )

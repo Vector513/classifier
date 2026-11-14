@@ -118,6 +118,86 @@ class BomControllerTest {
         checkAmount(service.totals(second,BigDecimal.ONE,supplies).single().totalQuantity,"3")
         checkAmount(service.totals(base,BigDecimal.ONE,supplies).single().totalQuantity,"1.25")
     }
+
+    @Test fun `cost sums terminal components and reports missing catalog prices`() {
+        val id = base()
+        val rubles = jdbc.queryForObject(
+            "INSERT INTO unit_of_measure(code, name) VALUES ('RUB', 'рубль') RETURNING id", Long::class.java
+        )
+        val price = jdbc.queryForObject("""
+            INSERT INTO numeric_parameter(code, name, unit_of_measure_id, created_at, updated_at)
+            VALUES ('PRICE', 'Цена', ?, now(), now()) RETURNING id
+        """, Long::class.java, rubles)
+        jdbc.update("""
+            INSERT INTO node_numeric_parameter(classifier_node_id, numeric_parameter_id, created_at)
+            VALUES (?, ?, now())
+        """, root, price)
+        fun priceComponent(component: Long, value: String) {
+            jdbc.update("""
+                INSERT INTO node_numeric_value(classifier_node_id, numeric_parameter_id, value, created_at, updated_at)
+                VALUES (?, ?, ?, now(), now())
+            """, component, price, BigDecimal(value))
+        }
+        priceComponent(cable, "100")
+        priceComponent(subassembly, "9000")
+        mvc.perform(get("/api/v1/bom/specifications/$id/cost"))
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.pricedSubtotal").value("125.00"))
+            .andExpect(jsonPath("$.missingPrices[0].code").value("CABLE-CLIP"))
+            .andExpect(jsonPath("$.missingPrices.length()").value(1))
+            .andExpect(jsonPath("$.positions[0].position").value(1))
+            .andExpect(jsonPath("$.positions[0].unitPrice").value("9000"))
+            .andExpect(jsonPath("$.positions[0].pricedSubtotal").value("100.00"))
+            .andExpect(jsonPath("$.positions[0].missingPrice").value(true))
+            .andExpect(jsonPath("$.positions[2].unitPrice").isEmpty)
+
+        priceComponent(clip, "2.5")
+        mvc.perform(get("/api/v1/bom/specifications/$id/cost"))
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.pricedSubtotal").value("142.50"))
+            .andExpect(jsonPath("$.missingPrices").isEmpty)
+            .andExpect(jsonPath("$.positions[0].pricedSubtotal").value("115.00"))
+            .andExpect(jsonPath("$.positions[0].missingPrice").value(false))
+            .andExpect(jsonPath("$.positions[1].unitPrice").value("100"))
+            .andExpect(jsonPath("$.positions[1].pricedSubtotal").value("25.00"))
+            .andExpect(jsonPath("$.positions[2].unitPrice").value("2.5"))
+
+        val changed = draft(variant, id)
+        service.exclude(changed, 3)
+        assertEquals("140.00", service.cost(changed).pricedSubtotal)
+        assertEquals(listOf(1, 2), service.cost(changed).positions.map { it.position })
+        assertEquals("142.50", service.cost(id).pricedSubtotal)
+    }
+
+    @Test fun `description can be edited only on a draft`() {
+        val id = draft(assembly)
+        val request = put("/api/v1/bom/specifications/$id/description")
+            .contentType(MediaType.APPLICATION_JSON).content("""{"description":"Уточнённый состав"}""")
+        mvc.perform(request).andExpect(status().isNoContent)
+        assertEquals("Уточнённый состав", service.get(id).description)
+
+        line(id, 1, cable, "1")
+        service.release(id)
+        mvc.perform(request).andExpect(status().isConflict)
+    }
+
+    @Test fun `batch calculation requires whole pieces and accepts decimal meters`() {
+        val pieces = base()
+        mvc.perform(get("/api/v1/bom/specifications/$pieces/explosion").param("quantity", "1.5"))
+            .andExpect(status().isUnprocessableEntity)
+        mvc.perform(get("/api/v1/bom/specifications/$pieces/totals")
+            .param("quantity", "1.5").param("classId", root.toString()))
+            .andExpect(status().isUnprocessableEntity)
+        mvc.perform(get("/api/v1/bom/specifications/$pieces/explosion").param("quantity", "2.0"))
+            .andExpect(status().isOk)
+
+        val meters = draft(cable)
+        line(meters, 1, clip, "2")
+        mvc.perform(get("/api/v1/bom/specifications/$meters/totals")
+            .param("quantity", "1.5").param("classId", root.toString()))
+            .andExpect(status().isOk).andExpect(jsonPath("$[0].totalQuantity").value(3.0))
+    }
+
     @Test fun `released history and pinned child versions are immutable`() {
         val base=base()
         requestLine(base,1,"""{"componentId":$cable,"quantity":4}""").andExpect(status().isConflict)

@@ -1,8 +1,10 @@
 package com.classifier.service
 
+import com.classifier.dto.BomCostResponse
 import com.classifier.dto.BomExplosionResponse
 import com.classifier.dto.BomLineRequest
 import com.classifier.dto.BomLineResponse
+import com.classifier.dto.BomPositionCost
 import com.classifier.dto.BomProductResponse
 import com.classifier.dto.BomSpecificationResponse
 import com.classifier.dto.BomTotalResponse
@@ -21,6 +23,7 @@ import com.classifier.repository.UnitOfMeasureRepository
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.math.BigDecimal
+import java.math.RoundingMode
 
 @Service
 @Transactional
@@ -129,15 +132,41 @@ class BomService(
         repository.delete(id)
     }
 
-    fun explode(id: Long, quantity: BigDecimal): List<BomExplosionResponse> {
+    fun updateDescription(id: Long, description: String) {
+        lockDraft(id)
+        repository.updateDescription(id, description.trim())
+    }
+
+    fun cost(id: Long): BomCostResponse {
         get(id)
-        checkQuantity(quantity)
+        val lines = repository.costLines(id)
+        if (lines.any { it.cycle }) {
+            throw CyclicMoveException("Обнаружен цикл в составе изделия")
+        }
+        val positions = lines.groupBy { it.position }.map { (position, branch) ->
+            BomPositionCost(
+                position = position,
+                unitPrice = branch.first { it.direct }.unitPrice?.stripTrailingZeros()?.toPlainString(),
+                pricedSubtotal = subtotal(branch),
+                missingPrice = branch.any { it.missingPrice }
+            )
+        }
+        val missingComponents = lines.filter { it.missingPrice }.map { it.component }
+            .distinctBy { it.id }.sortedBy { it.name }
+        return BomCostResponse(subtotal(lines), missingComponents, positions)
+    }
+
+    private fun subtotal(lines: List<BomRepository.CostLine>): String? =
+        lines.mapNotNull { it.amount }.reduceOrNull(BigDecimal::add)
+            ?.setScale(2, RoundingMode.HALF_UP)?.toPlainString()
+
+    fun explode(id: Long, quantity: BigDecimal): List<BomExplosionResponse> {
+        checkQuantity(get(id).productId, quantity)
         return requireAcyclicExplosion(id, quantity)
     }
 
     fun totals(id: Long, quantity: BigDecimal, classId: Long): List<BomTotalResponse> {
-        get(id)
-        checkQuantity(quantity)
+        checkQuantity(get(id).productId, quantity)
         if (!nodes.existsById(classId)) {
             throw EntityNotFoundException("Класс ресурсов $classId не найден")
         }
@@ -190,14 +219,18 @@ class BomService(
         }
     }
 
-    private fun checkQuantity(quantity: BigDecimal) {
+    private fun checkQuantity(productId: Long, quantity: BigDecimal) {
+        val fractionDigits = if (quantity.scale() > 0) quantity.stripTrailingZeros().scale() else 0
         if (quantity <= BigDecimal.ZERO ||
             quantity > MAX_QUANTITY ||
-            quantity.stripTrailingZeros().scale() > MAX_FRACTION_DIGITS
+            fractionDigits > MAX_FRACTION_DIGITS
         ) {
             throw InvalidSelectionException(
                 "Количество должно быть положительным, не более 13 целых и 6 дробных знаков"
             )
+        }
+        if (fractionDigits > 0 && repository.product(productId)?.unitCode in PIECE_UNIT_CODES) {
+            throw InvalidSelectionException("Количество изделий в штуках должно быть целым")
         }
     }
 
@@ -206,5 +239,6 @@ class BomService(
         const val RELEASED = "RELEASED"
         const val MAX_FRACTION_DIGITS = 6
         val MAX_QUANTITY = BigDecimal("9999999999999.999999")
+        val PIECE_UNIT_CODES = setOf("PCS", "BOM-PCS")
     }
 }

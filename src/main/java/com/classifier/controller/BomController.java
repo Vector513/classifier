@@ -1,5 +1,6 @@
 package com.classifier.controller;
 
+import com.classifier.dto.BomCostResponse;
 import com.classifier.dto.BomExplosionResponse;
 import com.classifier.dto.BomLineRequest;
 import com.classifier.dto.BomLineResponse;
@@ -8,6 +9,7 @@ import com.classifier.dto.BomSpecificationResponse;
 import com.classifier.dto.BomTotalResponse;
 import com.classifier.dto.CreateBomSpecificationRequest;
 import com.classifier.dto.RegisterBomProductRequest;
+import com.classifier.dto.UpdateBomDescriptionRequest;
 import com.classifier.service.BomService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -65,6 +67,18 @@ public class BomController {
     @GetMapping("/specifications/{id}")
     public BomSpecificationResponse get(@PathVariable Long id) {
         return service.get(id);
+    }
+
+    @PutMapping("/specifications/{id}/description")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void updateDescription(@PathVariable Long id, @Valid @RequestBody UpdateBomDescriptionRequest request) {
+        service.updateDescription(id, request.getDescription());
+    }
+
+    @GetMapping("/specifications/{id}/cost")
+    @Operation(summary = "Стоимость состава на одну единицу изделия по текущим ценам каталога")
+    public BomCostResponse cost(@PathVariable Long id) {
+        return service.cost(id);
     }
 
     @DeleteMapping("/specifications/{id}")

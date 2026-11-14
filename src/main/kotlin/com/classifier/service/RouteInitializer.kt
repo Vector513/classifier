@@ -1,0 +1,32 @@
+package com.classifier.service
+
+import org.springframework.beans.factory.annotation.Value
+import org.springframework.boot.ApplicationArguments
+import org.springframework.boot.ApplicationRunner
+import org.springframework.core.annotation.Order
+import org.springframework.core.io.ClassPathResource
+import org.springframework.jdbc.datasource.init.ResourceDatabasePopulator
+import org.springframework.jdbc.datasource.init.ScriptUtils
+import org.springframework.stereotype.Component
+import org.springframework.transaction.annotation.Transactional
+import javax.sql.DataSource
+
+@Component
+@Order(20)
+class RouteInitializer(
+    private val dataSource: DataSource,
+    @Value("\${classifier.demo.enabled:false}") private val demoEnabled: Boolean
+) : ApplicationRunner {
+    @Transactional
+    override fun run(args: ApplicationArguments) {
+        load("route.sql", "^^^")
+        if (demoEnabled) load("route-demo.sql", ScriptUtils.EOF_STATEMENT_SEPARATOR)
+    }
+
+    private fun load(file: String, delimiter: String) {
+        ResourceDatabasePopulator(ClassPathResource(file)).apply {
+            setSqlScriptEncoding("UTF-8")
+            setSeparator(delimiter)
+        }.execute(dataSource)
+    }
+}

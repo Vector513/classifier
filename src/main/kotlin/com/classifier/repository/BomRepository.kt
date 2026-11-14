@@ -1,5 +1,6 @@
 package com.classifier.repository
 
+import com.classifier.dto.BomCostComponent
 import com.classifier.dto.BomExplosionResponse
 import com.classifier.dto.BomLineRequest
 import com.classifier.dto.BomLineResponse
@@ -93,6 +94,10 @@ class BomRepository(private val jdbc: JdbcTemplate) {
         jdbc.update("UPDATE bom_specification SET status = 'RELEASED' WHERE id = ?", id)
     }
 
+    fun updateDescription(id: Long, description: String) {
+        jdbc.update("UPDATE bom_specification SET description = ? WHERE id = ?", description, id)
+    }
+
     fun delete(id: Long) {
         jdbc.update("DELETE FROM bom_specification WHERE id = ?", id)
     }
@@ -163,6 +168,52 @@ class BomRepository(private val jdbc: JdbcTemplate) {
             ORDER BY n.code
         """.trimIndent()
         return jdbc.query(sql, { rs, _ -> readTotal(rs) }, id, quantity, classId)
+    }
+
+    data class CostLine(
+        val position: Int,
+        val component: BomCostComponent,
+        val direct: Boolean,
+        val missingPrice: Boolean,
+        val unitPrice: BigDecimal?,
+        val amount: BigDecimal?,
+        val cycle: Boolean
+    )
+
+    fun costLines(id: Long): List<CostLine> {
+        val sql = """
+            WITH components AS (
+                SELECT path[1] AS position, component_id, BOOL_OR(depth = 1) AS direct,
+                    SUM(total_quantity) FILTER (WHERE component_specification_id IS NULL) AS quantity,
+                    BOOL_OR(cycle) AS cycle
+                FROM bom_explode(?, 1)
+                WHERE depth = 1 OR component_specification_id IS NULL OR cycle
+                GROUP BY path[1], component_id
+            )
+            SELECT c.position, n.id, n.code, n.name, c.direct, c.cycle,
+                c.quantity IS NOT NULL AND price.value IS NULL AS missing_price, price.value AS unit_price,
+                c.quantity * price.value AS amount
+            FROM components c
+            JOIN classifier_node n ON n.id = c.component_id
+            LEFT JOIN node_numeric_value price ON price.classifier_node_id = n.id AND price.value >= 0
+                AND price.numeric_parameter_id = (
+                    SELECT p.id FROM numeric_parameter p
+                    JOIN unit_of_measure u ON u.id = p.unit_of_measure_id
+                    WHERE p.code = 'PRICE' AND u.code = 'RUB'
+                )
+            ORDER BY c.position, n.name, n.id
+        """.trimIndent()
+        return jdbc.query(sql, { rs, _ ->
+            CostLine(
+                position = rs.getInt("position"),
+                component = BomCostComponent(rs.getLong("id"), rs.getString("code"), rs.getString("name")),
+                direct = rs.getBoolean("direct"),
+                missingPrice = rs.getBoolean("missing_price"),
+                unitPrice = rs.getBigDecimal("unit_price"),
+                amount = rs.getBigDecimal("amount"),
+                cycle = rs.getBoolean("cycle")
+            )
+        }, id)
     }
 
     private fun readProduct(rs: ResultSet) = BomProductResponse(

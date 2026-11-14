@@ -14,9 +14,11 @@ import * as numericParameters from './views/numericParameters.js';
 import * as units from './views/units.js';
 import * as search from './views/search.js';
 import * as bom from './views/bom.js';
+import * as manufacturing from './views/manufacturing.js';
 
 /* Сопоставление первого сегмента адреса с разделом приложения */
 const ROUTES = {
+    'routes': { view: manufacturing, nav: '/routes', title: 'Маршруты изготовления' },
     'bom': { view: bom, nav: '/bom', title: 'Составы изделий' },
     '':                  { view: dashboard,         nav: '/',                   title: 'Главная' },
     'tree':              { view: tree,              nav: '/tree',               title: 'Классификатор' },

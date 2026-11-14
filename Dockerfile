@@ -1,12 +1,13 @@
 FROM eclipse-temurin:17-jdk-alpine AS build
 WORKDIR /app
+ENV GRADLE_USER_HOME=/opt/gradle-cache
 COPY gradle gradle
 COPY gradlew build.gradle.kts settings.gradle.kts ./
-COPY gradle/libs.versions.toml gradle/
-RUN sed -i 's/\r$//' gradlew && chmod +x gradlew \
-    && (./gradlew dependencies --no-daemon || true)
+RUN sed -i 's/\r$//' gradlew && chmod +x gradlew
 COPY src src
-RUN ./gradlew bootJar --no-daemon
+# Keep downloaded dependencies and cacheable task outputs across source changes.
+RUN --mount=type=cache,id=classifier-gradle,target=/opt/gradle-cache,sharing=locked \
+    ./gradlew bootJar --no-daemon --build-cache
 
 FROM eclipse-temurin:17-jre-alpine
 WORKDIR /app

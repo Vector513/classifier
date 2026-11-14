@@ -30,12 +30,35 @@ function table(headers, rows, emptyMessage = 'Пока нет записей.') 
     return `<div class="table-wrap"><table class="table"><thead><tr>${header}</tr></thead><tbody>${body}</tbody></table></div>`;
 }
 
-function isValidQuantity(quantity) {
-    return /^\d{1,13}(?:\.\d{1,6})?$/.test(quantity) && Number(quantity) > 0;
+function isValidQuantity(quantity, wholeUnits = false) {
+    const format = wholeUnits ? /^\d{1,13}(?:\.0{1,6})?$/ : /^\d{1,13}(?:\.\d{1,6})?$/;
+    return format.test(quantity) && Number(quantity) > 0;
 }
 const label = s => `${s.productName} · версия ${s.revision} (${s.productCode})`;
 const flatten = (nodes, depth = 0) => nodes.flatMap(n => [{...n, depth}, ...flatten(n.children || [], depth + 1)]);
 const status = s => `<span class="bom-status ${s.status === 'DRAFT' ? 'bom-status--draft' : ''}">${s.status === 'DRAFT' ? 'Черновик' : 'Утверждён'}</span>`;
+const rubles = new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB' });
+const unitRubles = new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', maximumFractionDigits: 6 });
+
+function costDetails(cost) {
+    if (!cost) return '<div>Не удалось загрузить стоимость.</div>';
+    const amount = cost.pricedSubtotal === null ? '' : esc(rubles.format(cost.pricedSubtotal));
+    if (!cost.missingPrices.length) {
+        return amount ? `<strong>${amount}</strong>` : '<div>Добавьте компоненты, чтобы рассчитать стоимость.</div>';
+    }
+    return `<div>Для полного расчёта задайте цены всех компонентов.${amount ? ` По известным ценам <strong>${amount}</strong>.` : ''}</div>
+        <details><summary>Компоненты без цены (${cost.missingPrices.length})</summary>
+            <div class="bom-cell-hint">В карточке компонента откройте вкладку «Числовые» и укажите цену в рублях.</div>
+            <ul>${cost.missingPrices.map(p => `<li><a href="#/tree/${p.id}">${esc(p.name)} (${esc(p.code)})</a></li>`).join('')}</ul>
+        </details>`;
+}
+
+function positionAmount(cost, nested) {
+    if (cost?.pricedSubtotal == null) return nested && cost?.missingPrice ? 'Нужны цены компонентов' : '—';
+    const hint = cost.missingPrice ? 'По известным ценам' : nested ? 'По вложенному составу' : '';
+    return `${esc(rubles.format(cost.pricedSubtotal))}${hint ? `<div class="bom-cell-hint">${hint}</div>` : ''}`;
+}
+
 // Результат старого запроса не должен заменять новую карточку при быстром переходе.
 let renderVersion = 0;
 
@@ -142,28 +165,49 @@ export async function render(container, route) {
             updateUnit();
         },onSubmit:v=>api.bom.register({nodeId:Number(v.nodeId),kind:v.kind,unitId:Number(v.unitId)})}));
     };
-    const create = base => {
-        if (!productOptions.length) { toast.info('Сначала создайте товар в классификаторе.'); return; }
-        act(()=>form({title:base?'Создать состав на основе существующего':'Создать состав изделия',submitLabel:'Создать черновик',subtitle:base?'Для новой версии оставьте то же изделие. Для модификации выберите другое.':'Сначала создадим черновик, затем добавим его компоненты.',fields:[
-            {name:'productId',label:'Для какого изделия',type:'select',required:true,options:productOptions,value:base?.productId},
-            {name:'baseId',label:'Взять компоненты из готового состава',type:'select',value:base?.id,options:[{value:'',label:'Начать с пустого состава'},...released.map(s=>({value:s.id,label:label(s)}))],hint:'Исходный состав останется прежним. В новом черновике можно заменить, убрать и добавить компоненты.'},
-            {name:'description',label:'Что создаём или меняем',required:true,full:true,maxlength:1000,placeholder:'Например: заменяем мышь на беспроводную и добавляем контроллер'},
-        ],onSubmit:async v=>{
-            const result=await api.bom.create({productId:Number(v.productId),baseId:v.baseId?Number(v.baseId):null,description:v.description});
-            navigate(`/bom/${result.id}`);
-        }}));
+    const create = (base, modification = false) => {
+        const options = base
+            ? productOptions.filter(o => modification ? o.value !== base.productId : o.value === base.productId)
+            : productOptions;
+        if (!options.length) {
+            toast.info(modification ? 'Добавьте другое изделие в классификатор.' : 'Сначала создайте товар в классификаторе.');
+            return;
+        }
+        act(()=>form({
+            title: base ? (modification ? 'Создать модификацию' : 'Создать редакцию') : 'Создать состав изделия',
+            submitLabel: 'Создать черновик',
+            subtitle: base ? `Исходный состав — ${label(base)}` : 'Сначала создадим черновик, затем добавим его компоненты.',
+            fields: [
+                {name:'productId',label:modification?'Другое изделие':'Для какого изделия',type:'select',required:true,
+                    options:modification?[{value:'',label:'Выберите изделие'},...options]:options,
+                    value:modification?'':base?.productId},
+                ...(!base ? [{name:'baseId',label:'Взять компоненты из готового состава',type:'select',
+                    options:[{value:'',label:'Начать с пустого состава'},...released.map(s=>({value:s.id,label:label(s)}))],
+                    hint:'В новом черновике можно заменить, убрать и добавить компоненты.'}] : []),
+                {name:'description',label:'Что создаём или меняем',required:true,full:true,maxlength:1000},
+            ],
+            onSubmit: async v => {
+                const baseId = base?.id ?? (v.baseId ? Number(v.baseId) : null);
+                const result = await api.bom.create({productId:Number(v.productId),baseId,description:v.description});
+                navigate(`/bom/${result.id}`);
+            },
+        }));
     };
     container.querySelector('[data-create]').onclick=()=>create(null);
     if (!spec) {
         if (selected) container.querySelector('#bom-detail').innerHTML='<div class="card"><h2>Этот состав не найден</h2><p>Возможно, черновик был удалён. Выберите другой состав из списка ниже.</p></div>';
         return;
     }
-    const [lines, local, baseLines] = await Promise.all([
-        api.bom.lines(spec.id),api.bom.localPositions(spec.id),spec.baseId ? api.bom.lines(spec.baseId) : Promise.resolve([]),
+    const [lines, local, baseLines, cost] = await Promise.all([
+        api.bom.lines(spec.id), api.bom.localPositions(spec.id),
+        spec.baseId ? api.bom.lines(spec.baseId) : Promise.resolve([]),
+        api.bom.cost(spec.id).catch(() => null),
     ]);
     if (!active()) return;
     const editable = spec.status==='DRAFT';
     const product = products.find(p=>p.id===spec.productId);
+    const wholeUnits = ['PCS', 'BOM-PCS'].includes(product?.unitCode);
+    const pricesByPosition = new Map((cost?.positions ?? []).map(p => [p.position, p]));
     const amount = l => `${fmtNum(l.quantity)} ${esc(unitLabel(l.unitCode))}`;
     const component = l => `<strong>${esc(l.name)}</strong><div class="text-muted">${esc(l.code)}</div>`;
     const changeKind = l => {
@@ -180,14 +224,29 @@ export async function render(container, route) {
     detail.innerHTML=`<section class="card"><div class="page-head"><div class="page-head__text">
         <div class="bom-meta">${status(spec)}<span>Версия ${spec.revision}</span><span>${versionKind(spec)}</span><span>${esc(spec.productCode)}</span></div>
         <h2>${esc(spec.productName)}: состав на 1 ${esc(unitLabel(product?.unitCode || 'ед.'))}</h2>
-        <p>${esc(spec.description)}</p></div><div class="page-head__actions">${editable?button('Добавить компонент','data-add',true)+button('Утвердить состав',`data-release ${!lines.length?'disabled':''}`):button('Создать новую версию / модификацию','data-revise',true)}</div></div>
-        <div class="bom-notice">${editable?'Вы работаете с черновиком. Изменения сохраняются сразу. Проверьте состав и расчёт, затем утвердите версию.':'Этот состав утверждён и зафиксирован. Его можно использовать для расчётов. Для изменения создайте новую версию.'}</div>
+        <p>${esc(spec.description)}</p></div><div class="page-head__actions">${editable
+            ? button('Добавить компонент','data-add',true) + button('Изменить описание','data-edit-description')
+                + button('Утвердить состав',`data-release ${!lines.length?'disabled':''}`)
+            : button('Создать редакцию','data-revise',true) + button('Создать модификацию','data-modify')}</div></div>
+        <div class="bom-notice">${editable?'Вы работаете с черновиком. Изменения сохраняются сразу. Проверьте состав и расчёт, затем утвердите версию.':'Состав утверждён. Создайте редакцию для этого изделия или модификацию для другого.'}</div>
         ${spec.baseId?`<p>Исходный состав: ${specLink(spec.baseId)}. Компоненты без изменений взяты из него.</p>`:''}
+        <div class="bom-notice" id="bom-cost">
+            <strong>Стоимость состава на 1 ${esc(unitLabel(product?.unitCode || 'ед.'))}</strong>
+            ${costDetails(cost)}
+            <div class="bom-cell-hint">По текущим ценам каталога. При раскрытии вложенной сборки учитываются цены её компонентов.</div>
+        </div>
         <h3>Из чего состоит изделие</h3><p>Количество в каждой строке указано на одну единицу изделия. Для вложенной сборки можно открыть её собственный состав.</p>
-        ${table(['№','Компонент','На одну единицу изделия','Вложенный состав','Откуда взят',...(editable?['Действия']:[])],lines.map(l => [
-            l.position,component(l),amount(l),l.componentSpecificationId?specLink(l.componentSpecificationId):'Учитываем целиком',changeKind(l),
-            ...(editable?[button('Изменить',`data-edit="${l.position}"`)+button('Убрать',`data-exclude="${l.position}"`)]:[]),
-        ]), 'Состав пуст. Добавьте первый компонент и укажите его количество.')}
+        ${table(['№','Компонент','На одну единицу изделия','Цена за ед. по каталогу','Стоимость позиции','Вложенный состав','Откуда взят',...(editable?['Действия']:[])],lines.map(l => {
+            const price = pricesByPosition.get(l.position);
+            const unitPrice = price?.unitPrice == null
+                ? (price ? 'Цена не задана' : '—')
+                : esc(unitRubles.format(price.unitPrice));
+            return [
+                l.position, component(l), amount(l), unitPrice, positionAmount(price, l.componentSpecificationId != null),
+                l.componentSpecificationId?specLink(l.componentSpecificationId):'Учитываем целиком', changeKind(l),
+                ...(editable?[button('Изменить',`data-edit="${l.position}"`)+button('Убрать',`data-exclude="${l.position}"`)]:[]),
+            ];
+        }), 'Состав пуст. Добавьте первый компонент и укажите его количество.')}
         ${changes.length && (spec.baseId || editable) ? `<details class="bom-changes" ${spec.baseId?'open':''}><summary>Изменения этой версии (${changes.length})</summary>
         ${editable?'<p>Возврат к исходному составу действует только на выбранную строку.</p>':''}
         ${table(['№','Было в исходном составе','Стало в этой версии',...(editable?['Действие']:[])],changes.map(c => [
@@ -199,7 +258,11 @@ export async function render(container, route) {
         </section>
         <section class="card"><h2>Сколько понадобится компонентов?</h2>
         <p>Система умножает нормы на выбранное количество и раскрывает вложенные составы. Например, на 10 игровых наборов с одной клавиатурой в каждом нужно 10 клавиатур.</p>
-        <form id="bom-calc" class="bom-filters"><label class="field"><span>Количество комплектов или изделий (${esc(unitLabel(product?.unitCode || 'ед.'))})</span><input class="input" name="quantity" inputmode="decimal" value="1" required aria-describedby="bom-quantity-hint"><span class="field__hint" id="bom-quantity-hint">Число больше нуля. Дробь можно вводить через запятую.</span></label>
+        <form id="bom-calc" class="bom-filters"><label class="field">
+            <span>Количество комплектов или изделий (${esc(unitLabel(product?.unitCode || 'ед.'))})</span>
+            <input class="input" name="quantity" inputmode="${wholeUnits ? 'numeric' : 'decimal'}" value="1" required aria-describedby="bom-quantity-hint">
+            <span class="field__hint" id="bom-quantity-hint">${wholeUnits ? 'Целое число больше нуля.' : 'Число больше нуля. Дробь можно вводить через запятую.'}</span>
+        </label>
         <label class="field"><span>Что посчитать</span><select class="select" name="classId"><option value="">Все компоненты</option>${nodes.filter(n=>n.nodeKind==='GROUP').map(n=>`<option value="${n.id}">${'— '.repeat(n.depth)}${esc(n.name)} (${esc(n.code)})</option>`).join('')}</select><span class="field__hint">Группа из справочника и все её подгруппы.</span></label>
         <button class="btn btn--primary" type="submit">Рассчитать потребность</button></form><div id="bom-results" aria-live="polite"></div></section>`;
     const lineForm = line => act(()=>form({title:line?'Изменить компонент':'Добавить компонент',submitLabel:line?'Сохранить изменение':'Добавить в состав',subtitle:`Количество на 1 ${unitLabel(product?.unitCode || 'ед.')} изделия «${spec.productName}».`,fields:[
@@ -243,6 +306,14 @@ export async function render(container, route) {
         lineForm(null);
     });
     detail.querySelector('[data-revise]')?.addEventListener('click',()=>create(spec));
+    detail.querySelector('[data-modify]')?.addEventListener('click',()=>create(spec, true));
+    detail.querySelector('[data-edit-description]')?.addEventListener('click',()=>act(()=>form({
+        title: 'Изменить описание',
+        fields: [{name:'description',label:'Описание',value:spec.description,required:true,maxlength:1000}],
+        onSubmit: async v => {
+            await api.bom.updateDescription(spec.id, v.description);
+        },
+    })));
     detail.querySelector('[data-release]')?.addEventListener('click',()=>act(async()=>{
         if(await confirmDialog({title:'Зафиксировать этот состав?',message:'После утверждения редактирование этой версии закроется. Для следующих изменений можно будет создать новую версию.',confirmLabel:'Утвердить состав'})){
             await api.bom.release(spec.id); toast.success('Состав утверждён. Для изменений создайте новую версию.'); await refresh();
@@ -283,8 +354,10 @@ export async function render(container, route) {
         const classId = Number(data.get('classId'));
         const results = detail.querySelector('#bom-results');
         const submit = calcForm.querySelector('button');
-        if (!isValidQuantity(quantity)) {
-            results.textContent = 'Укажите количество больше нуля: до 13 цифр перед запятой и 6 после.';
+        if (!isValidQuantity(quantity, wholeUnits)) {
+            results.textContent = wholeUnits
+                ? 'Укажите целое число больше нуля, до 13 цифр.'
+                : 'Укажите количество больше нуля: до 13 цифр перед запятой и 6 после.';
             calcForm.elements.quantity.focus();
             return;
         }
