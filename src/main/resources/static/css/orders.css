@@ -36,3 +36,27 @@
  cursor: pointer;
 }
 .order-function-code[open] summary { margin-bottom: 8px; }
+.order-wizard-heading h3 { margin: 4px 0 0; font-size: 1.2rem; }
+.order-wizard-heading p {
+ margin: 0;
+ font-size: .85rem;
+ color: #596c83;
+}
+.order-function-body > .orders-empty { margin: 0; }
+.order-trial-values {
+ display: grid;
+ grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr));
+ gap: 12px;
+}
+.order-trial-result { margin: 0; }
+.modal__foot [data-btn-id="function-back"][hidden] { display: none; }
+.order-guided-actions {
+ display: flex;
+ flex-wrap: wrap;
+ gap: 8px;
+}
+.order-guided-actions > .order-control { flex-basis: 100%; }
+.order-guided-actions .btn { max-width: 100%; white-space: normal; }
+.order-function-body h4 { margin: 0; }
+.order-function-body > .btn { justify-self: start; }
+.order-function-body details .order-guided-actions { margin-top: 8px; }

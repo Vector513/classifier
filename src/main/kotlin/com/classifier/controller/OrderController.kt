@@ -29,6 +29,9 @@ class OrderController(private val service: OrderService) {
     @PutMapping("/variants/{id}") fun updateVariant(@PathVariable id: Long,@RequestBody r: VariantRequest)=mapOf("id" to service.updateVariant(id,r))
     @DeleteMapping("/variants/{id}") @ResponseStatus(HttpStatus.NO_CONTENT) fun deleteVariant(@PathVariable id: Long)=service.deleteVariant(id)
     @PostMapping("/functions") fun functionSave(@RequestParam(required=false) id: Long?,@RequestBody r: ConstraintFunctionRequest)=mapOf("id" to service.saveFunction(id,r))
+    @PostMapping("/functions/trial")
+    fun trial(@RequestParam(required = false) id: Long?, @RequestBody request: FunctionTrialRequest) =
+        service.tryFunction(id, request)
     @PostMapping("/functions/{id}/evaluate") fun evaluate(@PathVariable id: Long,@RequestBody r: FunctionEvaluationRequest)=service.evaluateFunction(id,r)
     @DeleteMapping("/functions/{id}") @ResponseStatus(HttpStatus.NO_CONTENT) fun deleteFunction(@PathVariable id: Long)=service.deleteFunction(id)
     @PostMapping("/{order}/lines") fun line(@PathVariable order: Long,@RequestParam(required=false) id: Long?,@RequestBody r: OrderLineRequest)=mapOf("id" to service.addLine(order,id,r))

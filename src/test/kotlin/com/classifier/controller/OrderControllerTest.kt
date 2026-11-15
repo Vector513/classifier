@@ -81,6 +81,26 @@ class OrderControllerTest {
         assertEquals(3,count("classifier_node"));assertEquals(0,count("node_numeric_value"));assertEquals(4,count("variant_parameter_value"))
         assertEquals(1,scalar("SELECT count(*) FROM variant_parameter_value WHERE variant_id=? AND value IS NULL AND enumeration_value_id IS NOT NULL",id))
     }
+    @Test fun `trial evaluates new and edited functions without saving changes`() {
+        val existingId = function("TRY_EXISTING", op("LE", a("a"), a("b")))
+        val expressionCount = count("expression")
+        val trial = mapOf(
+            "code" to "TRY_NEW",
+            "name" to "Пробная функция",
+            "resultType" to "BOOLEAN",
+            "parameters" to listOf("a", "b").map { mapOf("code" to it, "dataType" to "NUMBER") },
+            "expression" to op("GE", a("a"), a("b"))
+        )
+        val arguments = listOf(650, 450)
+        assertTrue(post("/functions/trial", mapOf("function" to trial, "arguments" to arguments)).asBoolean())
+        assertTrue(post("/functions/trial?id=$existingId", mapOf("function" to trial, "arguments" to arguments)).asBoolean())
+        assertFalse(post("/functions/$existingId/evaluate", mapOf("arguments" to arguments)).asBoolean())
+        bad("/functions/trial", mapOf("function" to trial, "arguments" to listOf(650)))
+        assertEquals(1, count("constraint_function"))
+        assertEquals(2, count("formal_parameter"))
+        assertEquals(expressionCount, count("expression"))
+        assertEquals(1, scalar("SELECT count(*) FROM constraint_function WHERE code='TRY_EXISTING'"))
+    }
     @Test fun `runtime functions evaluate nested arithmetic and reject ratio violations atomically`() {
         val f=function("RATIO",op("AND",op("GE",op("DIV",a("a"),a("b")),c(.5)),op("LE",op("DIV",a("a"),a("b")),c(2))))
         rule("RATIO",call(f,p("h"),p("w")))

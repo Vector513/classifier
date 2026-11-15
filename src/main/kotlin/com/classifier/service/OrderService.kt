@@ -6,8 +6,10 @@ import com.classifier.exception.InvalidSelectionException
 import com.classifier.repository.OrderRepository
 import com.fasterxml.jackson.databind.JsonNode
 import org.springframework.stereotype.Service
+import org.springframework.transaction.annotation.Propagation
 import org.springframework.transaction.annotation.Transactional
 import org.springframework.transaction.annotation.Isolation
+import org.springframework.transaction.interceptor.TransactionAspectSupport
 import java.math.BigDecimal
 
 @Service
@@ -72,6 +74,13 @@ class OrderService(private val db: OrderRepository) {
     fun saveFunction(id: Long?,r: ConstraintFunctionRequest): Long {
         db.lock();if(id!=null)record("constraint_function",id)
         return db.id("SELECT orders_save_function(?,?,?,?,?::jsonb,?::jsonb)",id,required(r.code,100),required(r.name,255),r.resultType,db.encode(r.parameters),db.encode(r.expression))
+    }
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    fun tryFunction(id: Long?, request: FunctionTrialRequest): JsonNode {
+        TransactionAspectSupport.currentTransactionStatus().setRollbackOnly()
+        val functionId = saveFunction(id, request.function)
+        db.execute("SET CONSTRAINTS orders_validate IMMEDIATE")
+        return evaluateFunction(functionId, FunctionEvaluationRequest(request.arguments))
     }
     fun validate(template: Long,r: ValidationRequest): Map<String, Any> {
         record("product_template",template);val errors=db.json("SELECT orders_validation_errors(?,?::jsonb)",template,db.encode(r.values))

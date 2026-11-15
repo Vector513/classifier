@@ -1,5 +1,6 @@
 import {esc, openForm, openDialog, confirmDialog, loadingState, toast} from '../ui.js';
 import {navigate} from '../router.js';
+import {guidedFunctionEditor,guidedFunctionText} from './guidedFunction.js';
 const base='/api/v1/orders';
 const types=[['NUMBER','Число'],['INTEGER','Целое число'],['STRING','Текст'],['BOOLEAN','Да / нет'],['ENUM','Перечисление']];
 const ops=[['AND','И'],['OR','ИЛИ'],['NOT','НЕ'],['IMPLIES','Если … то …'],['EQ','Равно'],['NE','Не равно'],['GT','Больше'],['GE','Больше или равно'],['LT','Меньше'],['LE','Меньше или равно'],['IN','Входит в список'],['ADD','Сложение'],['SUB','Вычитание'],['MUL','Умножение'],['DIV','Деление'],['MOD','Остаток'],['MIN','Минимум'],['MAX','Максимум'],['ABS','Модуль'],['NEG','Смена знака']];
@@ -25,15 +26,20 @@ const comparisons=[
 const functionModes=[
  ['comparison','Сравнить два числа'],
  ['range','Проверить число в диапазоне'],
- ['advanced','Составить сложное выражение'],
+ ['advanced','Составить своё условие'],
 ];
 const quickLabels={
  comparison:['Первое число','Второе число'],
  range:['Проверяемое число','Нижняя граница','Верхняя граница'],
 };
+const functionStepTitles={
+ goal:'Задача функции',
+ condition:'Условие и вычисления',
+ trial:'Пробная проверка',
+};
 
 function quickFunctionMode(row){
- if(row?.result_type!=='BOOLEAN'||!row.parameters.every(p=>['NUMBER','INTEGER'].includes(p.data_type??p.dataType)))return null;
+ if(row?.result_type!=='BOOLEAN'||!row.parameters.every(p=>!p.display_name&&['NUMBER','INTEGER'].includes(p.data_type??p.dataType)))return null;
  const codes=row.parameters.map(p=>p.code);
  const expression=row.expression;
  const compares=(node,left,right)=>node?.kind==='OPERATOR'&&node.args.length===2&&
@@ -65,6 +71,12 @@ function quickFunctionSummary(mode,operator){
  if(mode==='range')return 'Нижняя граница ≤ проверяемое число ≤ верхняя граница';
  const symbol=comparisons.find(([op])=>op===operator)[2];
  return `Первое число ${symbol} второе число`;
+}
+
+function functionArgumentValue(value,type,label){
+ if(type==='BOOLEAN')return value==='true';
+ if(['NUMBER','INTEGER'].includes(type))return number(value,label);
+ return value;
 }
 
 const expressionText=(e,functions=[])=>{
@@ -106,10 +118,10 @@ function expressionEditor(model,context,depth=0){
   }));root.append(head);
   if(model.kind==='OPERATOR')head.append(choice('Операция',ops,model.operator,v=>{model.operator=v;const unary=['NOT','ABS','NEG'].includes(v);if(unary)model.args=model.args.slice(0,1);while(model.args.length<(unary?1:2))model.args.push(constant(0));draw();}));
   if(model.kind==='PARAMETER')head.append(choice('Параметр',context.parameters.map(p=>[p.code,`${p.name} (${p.code})`]),model.parameterCode,v=>model.parameterCode=v));
-  if(model.kind==='FORMAL')head.append(choice('Формальный аргумент',context.formals.map(p=>[p.code,`${p.code} — ${types.find(t=>t[0]===p.dataType)?.[1]||p.dataType}`]),model.formalCode,v=>model.formalCode=v));
+  if(model.kind==='FORMAL')head.append(choice('Входное значение',context.formals.map(p=>[p.code,`${p.code} — ${types.find(t=>t[0]===p.dataType)?.[1]||p.dataType}`]),model.formalCode,v=>model.formalCode=v));
+  const calledFunction=model.kind==='CALL'?context.functions?.find(f=>f.id===model.functionId):null;
   if(model.kind==='CALL'){
    head.append(choice('Функция',[['','Выбрать…'],...(context.functions||[]).map(f=>[f.id,f.name])],model.functionId,v=>{model.functionId=Number(v)||null;model.args=(context.functions.find(f=>f.id===model.functionId)?.parameters||[]).map(()=>constant(0));draw();}));
-   const fun=context.functions?.find(f=>f.id===model.functionId);if(fun){const p=document.createElement('p');p.className='orders-empty';p.textContent=`Аргументы по порядку: ${fun.parameters.map(v=>v.code).join(', ')||'без аргументов'}`;root.append(p);}
   }
   if(model.kind==='CONST'){
    const kind=Array.isArray(model.value)?'LIST':typeof model.value==='boolean'?'BOOLEAN':typeof model.value==='string'?'STRING':'NUMBER';
@@ -145,7 +157,10 @@ function expressionEditor(model,context,depth=0){
   if(['CALL','OPERATOR'].includes(model.kind)){
    const children=document.createElement('div');children.className='order-expression-args';
    (model.args||[]).forEach((arg,i)=>{
-    const box=document.createElement('div');box.className='order-argument';const controls=document.createElement('div');controls.className='order-expression-head';const label=document.createElement('strong');label.textContent=`Аргумент ${i+1}`;controls.append(label);
+    const box=document.createElement('div');box.className='order-argument';const controls=document.createElement('div');controls.className='order-expression-head';const label=document.createElement('strong');
+    const parameter=calledFunction?.parameters[i];
+    label.textContent=parameter?.display_name||parameter?.code||`Аргумент ${i+1}`;
+    controls.append(label);
     for(const [name,fn,disabled] of [['Выше',()=>{[model.args[i-1],model.args[i]]=[model.args[i],model.args[i-1]];draw();},i===0],['Ниже',()=>{[model.args[i+1],model.args[i]]=[model.args[i],model.args[i+1]];draw();},i===model.args.length-1],['Убрать',()=>{model.args.splice(i,1);draw();},false]]){
      const b=document.createElement('button');b.type='button';b.className='btn btn--secondary';b.textContent=name;b.disabled=disabled;b.addEventListener('click',fn);controls.append(b);
     }
@@ -159,6 +174,7 @@ function expressionEditor(model,context,depth=0){
 function expressionDialog({title,row,context,isFunction,onSave,onSaved}){
   const existingMode=isFunction?quickFunctionMode(row):null;
   let mode=isFunction?(existingMode||(row?'advanced':'comparison')):'advanced';
+  let step=0;
   const drafts={
    comparison:quickFunctionDraft('comparison'),
    range:quickFunctionDraft('range'),
@@ -166,7 +182,7 @@ function expressionDialog({title,row,context,isFunction,onSave,onSaved}){
   if(row||!isFunction){
    drafts[mode]={
     expression:clone(row?.expression||{kind:'OPERATOR',operator:'GT',args:[constant(1),constant(0)]}),
-    parameters:(row?.parameters||[]).map(p=>({code:p.code,dataType:p.data_type??p.dataType})),
+    parameters:(row?.parameters||[]).map(p=>({code:p.code,dataType:p.data_type??p.dataType,displayName:p.display_name})),
     resultType:row?.result_type||'BOOLEAN',
    };
   }
@@ -177,10 +193,12 @@ function expressionDialog({title,row,context,isFunction,onSave,onSaved}){
     `<option value="${value}" ${value===selected?'selected':''}>${esc(label)}</option>`
    ).join('');
    const codeField=`<label class="order-control">Код
-    <input class="input" name="code" maxlength="100" required value="${esc(code)}">
+    <input class="input" name="code" maxlength="100" ${isFunction?'pattern="[A-Za-z_][A-Za-z0-9_]*"':''} required value="${esc(code)}">
    </label>`;
    api.body.innerHTML=`
     <form class="orders-editor-form">
+     ${isFunction?'<header class="order-wizard-heading"><p data-step-count></p><h3 data-step-title tabindex="-1"></h3></header>':''}
+     <div class="order-function-body" data-function-goal>
      <label class="order-control">Название
       <input class="input" name="name" maxlength="255" required value="${esc(row?.name||'')}">
      </label>
@@ -189,39 +207,50 @@ function expressionDialog({title,row,context,isFunction,onSave,onSaved}){
       <label for="order-function-mode">Что должна делать функция?</label>
       <select class="select" id="order-function-mode" name="functionMode">${options(modes,mode)}</select>
      </div>`:''}
+     ${isFunction?'<p class="orders-empty" data-mode-help></p>':''}
      ${isFunction?'':`<label class="order-control">Сообщение об ошибке
       <input class="input" name="errorMessage" required value="${esc(row?.error_message||'Конфигурация не соответствует правилу')}">
      </label>`}
-     <div class="order-function-body" data-function-body></div>
      ${isFunction?`<details class="order-function-code">
       <summary>Код функции</summary>
       ${codeField}
      </details>`:''}
+     </div>
+     <div class="order-function-body" data-function-body></div>
+     ${isFunction?'<section class="order-function-body" data-function-trial hidden></section>':''}
      <p class="orders-error" role="alert" data-editor-error hidden></p>
     </form>`;
    const form=api.body.querySelector('form');
    const error=form.querySelector('[data-editor-error]');
+   const goal=form.querySelector('[data-function-goal]');
    const body=form.querySelector('[data-function-body]');
+   const trial=form.querySelector('[data-function-trial]');
+   const trialValues=new Map();
    const codeDetails=form.querySelector('.order-function-code');
    if(codeDetails)form.elements.code.addEventListener('invalid',()=>{codeDetails.open=true;});
+   let detailed=false;
+   let guidedReady=true;
    const modeSelect=form.elements.namedItem('functionMode');
    modeSelect?.addEventListener('change',()=>{
-    if(!drafts[modeSelect.value])drafts[modeSelect.value]=clone(drafts[mode]);
+    if(!drafts[modeSelect.value])drafts[modeSelect.value]=row?clone(drafts[mode]):{
+     expression:null,parameters:[],resultType:'BOOLEAN',
+    };
     mode=modeSelect.value;
     error.hidden=true;
     draw();
+    showStep();
    });
    function draw(){
     const draft=drafts[mode];
+    guidedReady=true;
     if(mode!=='advanced'){
-     body.innerHTML=`<section class="order-function-preset">
+     body.innerHTML=`<section class="order-function-preset" data-function-condition>
       ${mode==='comparison'?`<div class="order-control">
        <label for="order-function-comparison">Как сравнить числа?</label>
        <select class="select" id="order-function-comparison" name="comparison">${options(comparisons,draft.expression.operator)}</select>
       </div>`:''}
       <p class="order-function-preview" data-quick-preview aria-live="polite"></p>
-      ${mode==='range'?'<p class="orders-empty">Границы задаются при вызове и входят в диапазон.</p>':''}
-      <p class="orders-empty">Результат проверки — да или нет.</p>
+      ${mode==='range'?'<p class="orders-empty">Границы тоже считаются допустимыми. Например, 16 входит в диапазон от 16 до 64.</p>':''}
      </section>`;
      const preview=body.querySelector('[data-quick-preview]');
      const updatePreview=()=>{preview.textContent=quickFunctionSummary(mode,draft.expression.operator);};
@@ -232,22 +261,50 @@ function expressionDialog({title,row,context,isFunction,onSave,onSaved}){
      updatePreview();
      return;
     }
-    body.innerHTML=`${isFunction?`<label class="order-control">Тип результата
-     <select class="select" name="resultType">${options(types,draft.resultType)}</select>
-    </label><section data-signature></section>`:''}
-    <h3>${isFunction?'Выражение функции':'Условие допустимости'}</h3><div data-expression></div>`;
+    if(isFunction&&!detailed){
+     body.innerHTML='<div class="order-function-body" data-function-condition></div>';
+     const condition=body.firstElementChild;
+     const technical=document.createElement('button');
+     technical.type='button';
+     technical.className='btn btn--secondary';
+     technical.textContent='Подробный редактор';
+     technical.onclick=()=>{detailed=true;draw();showStep();};
+     const guided=guidedFunctionEditor(draft,(context.functions||[]).filter(f=>f.id!==row?.id),ready=>{
+      guidedReady=ready;
+      technical.hidden=!ready;
+      if(!condition.hidden&&condition.isConnected)updateNext();
+     });
+     condition.append(guided,technical);
+     return;
+    }
+    body.innerHTML=`${isFunction?`<div class="order-function-body" data-function-inputs>
+     <p class="orders-empty">Добавьте по одному входу на каждое значение. Например, <code>power</code> для мощности и <code>limit</code> для порога. Для проверки выберите результат «Да / нет».</p>
+     <section data-signature></section>
+     <label class="order-control">Что вернёт функция?
+      <select class="select" name="resultType">${options(types,draft.resultType)}</select>
+     </label>
+    </div>`:''}
+    <div class="order-function-body" data-function-condition>
+     ${isFunction?'<p class="orders-empty">Выберите операцию, например «Больше». В её полях укажите, что сравнивать: входное значение, заданное число или результат другой операции.</p>':'<h3>Условие допустимости</h3>'}
+     <div data-expression></div>
+    </div>`;
     const drawExpression=()=>body.querySelector('[data-expression]').replaceChildren(
      expressionEditor(draft.expression,{...context,formals:draft.parameters})
     );
     if(isFunction){
+     const basic=document.createElement('button');
+     basic.type='button';
+     basic.className='btn btn--secondary';
+     basic.textContent='Вернуться к пошаговому редактору';
+     basic.onclick=()=>{detailed=false;draw();showStep();};
+     body.querySelector('[data-function-condition]').prepend(basic);
      form.elements.resultType.addEventListener('change',event=>{draft.resultType=event.target.value;});
      const area=body.querySelector('[data-signature]');
-     area.innerHTML='<h3>Входные аргументы</h3>';
      draft.parameters.forEach((parameter,index)=>{
       const line=document.createElement('div');
       line.className='order-signature-line';
-      line.innerHTML=`<label class="order-control">Аргумент ${index+1}
-       <input class="input" value="${esc(parameter.code)}" aria-label="Код аргумента ${index+1}" required>
+      line.innerHTML=`<label class="order-control">Код входа ${index+1}
+       <input class="input" value="${esc(parameter.code)}" aria-label="Код аргумента ${index+1}" pattern="[A-Za-z_][A-Za-z0-9_]*" required>
       </label><label class="order-control">Тип
        <select class="select" aria-label="Тип аргумента ${index+1}">${options(types,parameter.dataType)}</select>
       </label><button type="button" class="btn btn--secondary">Убрать</button>`;
@@ -274,45 +331,190 @@ function expressionDialog({title,row,context,isFunction,onSave,onSaved}){
        parameter.dataType=event.target.value;
        drawExpression();
       });
-      line.querySelector('button').onclick=()=>{draft.parameters.splice(index,1);draw();};
+      line.querySelector('button').onclick=()=>{draft.parameters.splice(index,1);draw();showStep();};
       area.append(line);
      });
      const add=document.createElement('button');
      add.type='button';
      add.className='btn btn--secondary';
-     add.textContent='Добавить аргумент функции';
+     add.textContent='Добавить входное значение';
      add.onclick=()=>{
       let index=draft.parameters.length+1;
       while(draft.parameters.some(p=>p.code===`arg${index}`))index++;
       draft.parameters.push({code:`arg${index}`,dataType:'NUMBER'});
       draw();
+      showStep();
      };
      area.append(add);
     }
     drawExpression();
    }
-   draw();
+   const steps=['goal','condition','trial'];
+   function parametersToSave(draft){
+    if(row||detailed||mode!=='advanced')return draft.parameters;
+    const used=new Set();
+    function visit(node){
+     if(!node)return;
+     if(node.kind==='FORMAL')used.add(node.formalCode);
+     node.args.forEach(visit);
+    }
+    visit(draft.expression);
+    return draft.parameters.filter(parameter=>used.has(parameter.code));
+   }
+   function dataToSave(){
+    const draft=drafts[mode];
+    const name=form.elements.name.value.trim();
+    if(!name)throw new Error(isFunction?'Укажите название функции.':'Укажите название правила.');
+    const data={
+     code:form.elements.code.value.trim(),name,
+     expression:validateExpression(draft.expression),
+    };
+    if(isFunction)Object.assign(data,{resultType:draft.resultType,parameters:parametersToSave(draft)});
+    else data.errorMessage=form.elements.errorMessage.value.trim();
+    return data;
+   }
+   function drawTrial(){
+    const draft=drafts[mode];
+    const summary=mode==='advanced'?guidedFunctionText(draft.expression,draft.parameters,context.functions):
+     quickFunctionSummary(mode,draft.expression.operator);
+    trial.innerHTML=`
+     <div class="order-function-preset">
+      <p class="order-function-preview">${esc(summary)}</p>
+     </div>
+     <p class="orders-empty">Подставьте пример и посмотрите, что вернёт функция. Пробная проверка не сохраняет её в библиотеке.</p>
+     <div class="order-trial-values" data-trial-values></div>
+     <div><button class="btn btn--secondary" type="button" data-run-trial>Проверить на примере</button></div>
+     <p class="order-trial-result" role="status" data-trial-result hidden></p>`;
+    const test=trial.querySelector('[data-run-trial]');
+    const result=trial.querySelector('[data-trial-result]');
+    let revision=0;
+    const examples=mode==='comparison'?['650','450']:['32','16','64'];
+    const inputs=parametersToSave(draft).map((parameter,index)=>{
+     const {code,dataType}=parameter;
+     const label=parameter.displayName||quickLabels[mode]?.[index]||code;
+     const key=`${mode}:${code}:${dataType}`;
+     const wrap=document.createElement('label');
+     wrap.className='order-control';
+     wrap.textContent=label;
+     const input=document.createElement(dataType==='BOOLEAN'?'select':'input');
+     if(dataType==='BOOLEAN'){
+      input.className='select';
+      input.add(new Option('Выберите значение',''));
+      input.add(new Option('Да','true'));
+      input.add(new Option('Нет','false'));
+     }else{
+      input.className='input';
+      if(dataType==='NUMBER'||dataType==='INTEGER')input.inputMode='decimal';
+     }
+     input.value=trialValues.get(key)??(mode==='advanced'?'':examples[index]);
+     input.addEventListener('input',()=>{
+      trialValues.set(key,input.value);
+      revision++;
+      result.hidden=true;
+      test.disabled=false;
+     });
+     wrap.append(input);
+     trial.querySelector('[data-trial-values]').append(wrap);
+     return {input,label,dataType};
+    });
+    test.addEventListener('click',async()=>{
+     const run=++revision;
+     test.disabled=true;
+     result.hidden=false;
+     result.className='order-trial-result';
+     result.textContent='Проверяем…';
+     try{
+      const args=inputs.map(({input,label,dataType})=>{
+       if(dataType==='BOOLEAN'&&!input.value)throw new Error(`Выберите «Да» или «Нет» для «${label}».`);
+       return functionArgumentValue(input.value,dataType,label);
+      });
+      const value=await request(`/functions/trial${idQuery(row)}`,'POST',{function:dataToSave(),arguments:args});
+      if(run!==revision)return;
+      result.classList.add('orders-success');
+      result.textContent=`Результат — ${typeof value==='boolean'?(value?'Да':'Нет'):value}`;
+     }catch(e){
+      if(run!==revision)return;
+      result.classList.add('orders-error');
+      result.textContent=e.message;
+     }finally{
+      if(run===revision)test.disabled=false;
+     }
+    });
+   }
+   function showStep(focus=false){
+    if(!isFunction)return;
+    const current=steps[step];
+    form.querySelector('[data-step-count]').textContent=`Шаг ${step+1} из ${steps.length}`;
+    const heading=form.querySelector('[data-step-title]');
+    heading.textContent=functionStepTitles[current];
+    goal.hidden=current!=='goal';
+    body.hidden=current!=='condition';
+    trial.hidden=current!=='trial';
+    back.hidden=step===0;
+    updateNext();
+    if(current==='trial')drawTrial();
+    if(focus){
+     form.closest('.modal-overlay').scrollTop=0;
+     heading.focus();
+    }
+   }
+   function updateNext(){
+    const current=steps[step];
+    next.querySelector('span').textContent=current==='trial'?'Сохранить':'Далее';
+    next.disabled=current==='condition'&&!guidedReady;
+   }
+   if(isFunction){
+    const help=form.querySelector('[data-mode-help]');
+    const descriptions={
+     comparison:'Например, проверить, хватает ли мощности блока питания.',
+     range:'Например, проверить, входит ли длина изделия в допустимый диапазон.',
+     advanced:'Отвечайте на вопросы по очереди. Например, сначала выберите, что сравнить, а затем укажите, откуда взять каждое значение.',
+    };
+    const updateHelp=()=>{help.textContent=descriptions[mode];};
+    modeSelect?.addEventListener('change',updateHelp);
+    updateHelp();
+   }
    api.addButton({label:'Отмена',onClick(){api.close();}});
-   api.addButton({label:'Сохранить',variant:'btn--primary',async onClick(_,button){
-    if(!form.reportValidity())return;
+   const back=isFunction?api.addButton({label:'Назад',id:'function-back',onClick(){
+    step--;
     error.hidden=true;
-    button.disabled=true;
+    showStep(true);
+   }}):null;
+   const next=api.addButton({label:'Сохранить',variant:'btn--primary',async onClick(_,button){
+    error.hidden=true;
     try{
-     const values=new FormData(form);
-     const draft=drafts[mode];
-     const data={code:values.get('code').trim(),name:values.get('name').trim(),expression:validateExpression(draft.expression)};
-     if(isFunction)Object.assign(data,{resultType:draft.resultType,parameters:draft.parameters});
-     else data.errorMessage=values.get('errorMessage').trim();
-     await onSave(data);
+     if(isFunction){
+      const current=steps[step];
+      if(current!=='trial'){
+       const panel=current==='goal'?goal:body;
+       if(![...panel.querySelectorAll('input,select,textarea')].every(input=>input.reportValidity()))return;
+       if(current==='goal'&&!form.elements.name.value.trim())throw new Error('Укажите название функции.');
+       if(current==='condition')validateExpression(drafts[mode].expression);
+       step++;
+       showStep(true);
+       return;
+      }
+     }else if(!form.reportValidity())return;
+     button.disabled=true;
+     if(back)back.disabled=true;
+     await onSave(dataToSave());
      api.close();
      await onSaved?.();
     }catch(e){
      error.textContent=e.message;
      error.hidden=false;
     }finally{
-     button.disabled=false;
+     if(isFunction)updateNext();else button.disabled=false;
+     if(back)back.disabled=false;
     }
    }});
+   form.addEventListener('submit',event=>{
+    event.preventDefault();
+    if(isFunction&&steps[step]==='trial')trial.querySelector('[data-run-trial]').click();
+    else next.click();
+   });
+   draw();
+   showStep();
   }});
 }
 
@@ -345,8 +547,62 @@ export async function render(container,route){
  function ruleForm(row){expressionDialog({title:row?'Изменить правило':'Новое правило конфигурации',row,context:{parameters:detail.parameters,functions:data.functions},onSave:r=>request(`/templates/${templateId}/rules${idQuery(row)}`,'POST',r),onSaved:refresh});}
  function functionForm(row){expressionDialog({title:row?'Изменить функцию':'Новая функция ограничения',row,isFunction:true,context:{functions:data.functions},onSave:r=>request('/functions'+idQuery(row),'POST',r),onSaved:refresh});}
  async function readyForm(row){return form(row?'Изменить позицию':'Добавить готовое изделие',[select('productId','Готовое изделие',pairs(ready,n=>`${n.name} · ${n.code}`),row?.product_id),field('quantity','Количество',row?.quantity||1),field('note','Примечание',row?.note,false)],v=>request(`/${orderId}/lines${idQuery(row)}`,'POST',{productId:Number(v.productId),quantity:integer(v.quantity),note:v.note}));}
+ async function addConfiguredLine(){
+  if(!data.templates.length)throw new Error('Сначала создайте шаблон в разделе «Конструктор изделий».');
+  const newVariant='new';
+  const quantity=field('quantity','Количество',1);
+  const result=await openForm({
+   title:'Добавить исполнение по шаблону',
+   wide:true,
+   submitLabel:'Добавить в заказ',
+   fields:[
+    select('templateId','Шаблон',pairs(data.templates)),
+    select('variantId','Вариант исполнения',[]),
+    quantity,
+    field('note','Примечание','',false),
+   ],
+   async onSubmit(values){
+    if(values.variantId===newVariant)return {newTemplateId:Number(values.templateId)};
+    return request(`/${orderId}/lines`,'POST',{
+     variantId:Number(values.variantId),
+     quantity:integer(values.quantity),
+     note:values.note,
+    });
+   },
+   onMount(form){
+    const templateSelect=form.elements.templateId;
+    const variantSelect=form.elements.variantId;
+    const orderFields=['quantity','note'].map(name=>form.querySelector(`[data-field="${name}"]`));
+    function toggleOrderFields(){
+     const value=variantSelect.value;
+     const useSavedVariant=Boolean(value)&&value!==newVariant;
+     quantity.required=useSavedVariant;
+     orderFields.forEach(element=>{element.hidden=!useSavedVariant;});
+     const submitLabel=form.closest('.modal').querySelector('[data-act="submit"] span');
+     if(submitLabel)submitLabel.textContent=value===newVariant?'Продолжить':'Добавить в заказ';
+    }
+    function updateVariants(){
+     const templateId=Number(templateSelect.value);
+     const saved=templateId?data.variants.filter(variant=>variant.template_id===templateId):[];
+     const placeholder=templateId?'Выберите вариант':'Сначала выберите шаблон';
+     variantSelect.replaceChildren(new Option(placeholder,''));
+     variantSelect.disabled=!templateId;
+     if(templateId){
+      saved.forEach(variant=>variantSelect.add(new Option(`${variant.name} · ${variant.code}`,variant.id)));
+      variantSelect.add(new Option('Создать новое исполнение',newVariant));
+      if(!saved.length)variantSelect.value=newVariant;
+     }
+     toggleOrderFields();
+    }
+    templateSelect.addEventListener('change',updateVariants);
+    variantSelect.addEventListener('change',toggleOrderFields);
+    updateVariants();
+   },
+  });
+  if(result?.newTemplateId)await configure(result.newTemplateId);
+  else if(result)await refresh();
+ }
  async function configure(tplId,row,existingVariant){
-  if(!tplId){const chosen=await openForm({title:'Выбрать шаблон изделия',fields:[select('templateId','Шаблон',pairs(data.templates))],onSubmit:v=>v});if(!chosen)return;tplId=Number(chosen.templateId);}
   const t=await request(`/templates/${tplId}`);const previous=row?.variant_id||existingVariant?await request(`/variants/${row?.variant_id||existingVariant.id}`):null;
   const fields=[field('code','Код исполнения',existingVariant?previous.variant.code:`${t.template.code.slice(0,70)}-${Date.now()}`),field('name','Название исполнения',previous?.variant.name||`${t.template.name} — исполнение`)];
   if(orderId)fields.push(field('quantity','Количество',row?.quantity||1),field('note','Примечание',row?.note,false));
@@ -359,8 +615,8 @@ export async function render(container,route){
   const mode=quickFunctionMode(row);
   const labels=quickLabels[mode];
   const fields=row.parameters.map((p,index)=>{
-   if(p.data_type==='BOOLEAN')return select(p.code,p.code,[['true','Да'],['false','Нет']],'true');
-   const label=labels?.[index]??`${p.code} (${types.find(([type])=>type===p.data_type)?.[1]})`;
+   if(p.data_type==='BOOLEAN')return select(p.code,p.display_name||p.code,[['true','Да'],['false','Нет']],'true');
+   const label=p.display_name||labels?.[index]||`${p.code} (${types.find(([type])=>type===p.data_type)?.[1]})`;
    return field(p.code,label);
   });
   return openForm({
@@ -368,12 +624,9 @@ export async function render(container,route){
    subtitle:mode?quickFunctionSummary(mode,row.expression.operator):undefined,
    fields,
    async onSubmit(values){
-    const args=row.parameters.map((p,index)=>{
-     const value=values[p.code];
-     if(p.data_type==='BOOLEAN')return value==='true';
-     if(['NUMBER','INTEGER'].includes(p.data_type))return number(value,labels?.[index]??p.code);
-     return value;
-    });
+    const args=row.parameters.map((p,index)=>
+     functionArgumentValue(values[p.code],p.data_type,p.display_name||labels?.[index]||p.code)
+    );
     const result=await request(`/functions/${row.id}/evaluate`,'POST',{arguments:args});
     toast.success(`Результат: ${typeof result==='boolean'?(result?'Да':'Нет'):result}`);
     return result;
@@ -391,10 +644,10 @@ export async function render(container,route){
  else if(section==='functions'){
   const rows=data.functions.map(f=>{
    const mode=quickFunctionMode(f);
-   const summary=mode?quickFunctionSummary(mode,f.expression.operator):expressionText(f.expression,data.functions);
+   const summary=mode?quickFunctionSummary(mode,f.expression.operator):guidedFunctionText(f.expression,f.parameters,data.functions);
    return [
     `${esc(f.name)}<br><span class="order-formula">${esc(summary)}</span>`,
-    (quickLabels[mode]??f.parameters.map(p=>p.code)).map(esc).join(', '),
+    f.parameters.map((p,index)=>p.display_name||quickLabels[mode]?.[index]||p.code).map(esc).join(', '),
     esc(types.find(([type])=>type===f.result_type)?.[1]),
     `<div class="order-actions">${btn('Проверить','evaluate-function',f.id)}${btn('Изменить','edit-function',f.id)}${btn('Удалить','delete-function',f.id)}</div>`,
    ];
@@ -417,7 +670,7 @@ export async function render(container,route){
    else if(a==='add-rule')await ruleForm();else if(a==='edit-rule')await ruleForm(byId(detail.rules,id));else if(a==='delete-rule')await remove('Удалить правило шаблона?',()=>request(`/templates/${templateId}/rules/${id}`,'DELETE'));
    else if(a==='add-function')await functionForm();else if(a==='edit-function')await functionForm(byId(data.functions,id));else if(a==='evaluate-function')await evaluate(byId(data.functions,id));else if(a==='delete-function')await remove('Используемую функцию удалить нельзя.',()=>request(`/functions/${id}`,'DELETE'));
    else if(a==='create-variant')await configure(id);else if(a==='edit-variant')await configure(templateId,null,byId(detail.variants,id));else if(a==='delete-variant')await remove('Вариант из заказа удалить нельзя.',()=>request(`/variants/${id}`,'DELETE'));
-   else if(a==='add-ready')await readyForm();else if(a==='add-configured')await configure();else if(a==='delete-line')await remove('Убрать позицию из заказа?',()=>request(`/${orderId}/lines/${id}`,'DELETE'));
+   else if(a==='add-ready')await readyForm();else if(a==='add-configured')await addConfiguredLine();else if(a==='delete-line')await remove('Убрать позицию из заказа?',()=>request(`/${orderId}/lines/${id}`,'DELETE'));
    else if(a==='edit-line'){const row=byId(detail.lines,id);if(row.variant_id){const v=byId(data.variants,row.variant_id);await configure(v.template_id,row);}else await readyForm(row);}
   }catch(e){toast.error(e.message);}
  }));

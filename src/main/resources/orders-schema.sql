@@ -87,6 +87,8 @@ CREATE TABLE IF NOT EXISTS formal_parameter (
  UNIQUE (function_id,argument_number), UNIQUE (function_id,code)
 );
 ^^^
+ALTER TABLE formal_parameter ADD COLUMN IF NOT EXISTS display_name VARCHAR(255);
+^^^
 CREATE TABLE IF NOT EXISTS expression (
  id BIGSERIAL PRIMARY KEY,
  parent_expression_id BIGINT REFERENCES expression(id) ON DELETE CASCADE,

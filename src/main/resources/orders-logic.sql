@@ -306,7 +306,7 @@ BEGIN
 END $$;
 ^^^
 CREATE OR REPLACE FUNCTION orders_save_function(p_id BIGINT,p_code TEXT,p_name TEXT,p_type TEXT,signature JSONB,ast JSONB) RETURNS BIGINT LANGUAGE plpgsql AS $$
-DECLARE result BIGINT; old_root BIGINT; placeholder BIGINT; root BIGINT; arg JSONB; n INT:=0;
+DECLARE result BIGINT; old_root BIGINT; placeholder BIGINT; root BIGINT; arg JSONB; n INT:=0; old_labels JSONB:='{}';
 BEGIN
  PERFORM pg_advisory_xact_lock(21001);
  PERFORM orders_require(jsonb_typeof(signature)='array','Сигнатура должна быть списком');
@@ -318,10 +318,13 @@ BEGIN
   SELECT root_expression_id INTO old_root FROM constraint_function WHERE id=p_id;PERFORM orders_require(old_root IS NOT NULL,'Функция не найдена');
   result:=p_id;UPDATE constraint_function SET root_expression_id=placeholder,code=p_code,name=p_name,result_type=p_type WHERE id=result;
   DELETE FROM expression WHERE id=old_root;
+  SELECT coalesce(jsonb_object_agg(code,display_name),'{}') INTO old_labels FROM formal_parameter WHERE function_id=result;
   DELETE FROM formal_parameter WHERE function_id=result;
  END IF;
  FOR arg IN SELECT value FROM jsonb_array_elements(signature) LOOP
-  n:=n+1;INSERT INTO formal_parameter(function_id,argument_number,code,data_type) VALUES(result,n,arg->>'code',arg->>'dataType');
+  n:=n+1;
+  INSERT INTO formal_parameter(function_id,argument_number,code,data_type,display_name)
+  VALUES(result,n,arg->>'code',arg->>'dataType',coalesce(nullif(btrim(arg->>'displayName'),''),old_labels->>(arg->>'code')));
  END LOOP;
  root:=orders_save_expression(ast,NULL,result);
  PERFORM orders_require(orders_compatible(orders_expression_type(root,NULL,result,'{}',ARRAY[result]),p_type),'Тип результата тела не совпадает с типом функции');
