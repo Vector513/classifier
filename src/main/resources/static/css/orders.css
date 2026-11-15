@@ -12,3 +12,27 @@
  .app:has(.orders-page) .brand__title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
  .order-cell-value{min-width:0;overflow-wrap:anywhere}
 }
+
+.order-function-body,
+.order-function-preset {
+ display: grid;
+ gap: 12px;
+ min-width: 0;
+}
+.order-function-preset {
+ padding: 16px;
+ border: 1px solid #c9d9f0;
+ border-radius: 8px;
+ background: #f7faff;
+}
+.order-function-preview {
+ color: #233a59;
+ font-weight: 600;
+ overflow-wrap: anywhere;
+}
+.order-function-preset p { margin: 0; }
+.order-function-code summary {
+ color: #314662;
+ cursor: pointer;
+}
+.order-function-code[open] summary { margin-bottom: 8px; }
