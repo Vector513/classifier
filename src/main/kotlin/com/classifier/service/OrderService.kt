@@ -11,13 +11,16 @@ import org.springframework.transaction.annotation.Transactional
 import org.springframework.transaction.annotation.Isolation
 import org.springframework.transaction.interceptor.TransactionAspectSupport
 import java.math.BigDecimal
+import java.text.DecimalFormat
+import java.text.DecimalFormatSymbols
+import java.util.Locale
 
 @Service
 @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
 class OrderService(private val db: OrderRepository) {
     fun overview(): Map<String, Any> = mapOf(
         "customers" to db.rows("SELECT to_jsonb(c) FROM customer c ORDER BY name,id"),
-        "orders" to db.rows("""SELECT to_jsonb(x) FROM (SELECT o.*,c.name AS customer_name,(SELECT count(*) FROM order_line l WHERE l.order_id=o.id) AS line_count FROM customer_order o JOIN customer c ON c.id=o.customer_id ORDER BY o.id DESC) x"""),
+        "orders" to db.rows("""SELECT to_jsonb(x) FROM (SELECT o.*,c.name AS customer_name,a.line_count,a.unpriced_line_count,a.priced_subtotal,a.total_amount FROM customer_order o JOIN customer c ON c.id=o.customer_id JOIN orders_amounts a ON a.order_id=o.id ORDER BY o.id DESC) x"""),
         "catalog" to db.rows("""SELECT to_jsonb(x) FROM (SELECT n.id,n.code,n.name,n.node_kind,u.code AS unit,EXISTS(SELECT 1 FROM product_template t WHERE t.product_id=n.id) AS has_template FROM classifier_node n LEFT JOIN unit_of_measure u ON u.id=n.unit_of_measure_id ORDER BY n.name,n.id) x"""),
         "templates" to db.rows("SELECT to_jsonb(t) FROM product_template t ORDER BY name,id"),
         "variants" to db.rows("SELECT to_jsonb(v) FROM product_variant v ORDER BY name,id"),
@@ -30,14 +33,15 @@ class OrderService(private val db: OrderRepository) {
     fun template(id: Long): Map<String, Any> = mapOf(
         "template" to record("product_template",id),
         "parameters" to parameters(id),
+        "components" to db.rows("SELECT to_jsonb(c)||jsonb_build_object('component_name',n.name,'component_code',n.code,'quantity_code',p.code) FROM configuration_component c JOIN classifier_node n ON n.id=c.component_id LEFT JOIN configuration_parameter p ON p.id=c.quantity_parameter_id WHERE c.template_id=? ORDER BY c.selection_group,c.id",id),
         "rules" to db.rows("SELECT to_jsonb(r)||jsonb_build_object('expression',orders_expression_json(r.root_expression_id)) FROM configuration_rule r WHERE template_id=? ORDER BY id",id),
         "variants" to db.rows("SELECT to_jsonb(v)||jsonb_build_object('values',orders_variant_values(v.id)) FROM product_variant v WHERE template_id=? ORDER BY id",id)
     )
     private fun parameters(id: Long) = db.rows("""SELECT to_jsonb(p)||jsonb_build_object('unit',u.code,'options',coalesce((SELECT jsonb_agg(to_jsonb(e) ORDER BY sort_order,id) FROM enumeration_value e WHERE e.enumeration_id=p.enumeration_id),'[]')) FROM configuration_parameter p LEFT JOIN unit_of_measure u ON u.id=p.unit_of_measure_id WHERE p.template_id=? ORDER BY p.id""",id)
     fun variant(id: Long) = record("product_variant",id).let { mapOf("variant" to it,"values" to db.json("SELECT orders_variant_values(?)",id)) }
     fun order(id: Long): Map<String, Any> = mapOf(
-        "order" to (db.rows("SELECT to_jsonb(o)||jsonb_build_object('customer',to_jsonb(c)) FROM customer_order o JOIN customer c ON c.id=o.customer_id WHERE o.id=?",id).firstOrNull() ?: missing()),
-        "lines" to db.rows("SELECT to_jsonb(l) FROM get_order_contents(?) l",id)
+        "order" to (db.rows("SELECT to_jsonb(o)||jsonb_build_object('customer',to_jsonb(c))||(to_jsonb(a)-'order_id') FROM customer_order o JOIN customer c ON c.id=o.customer_id JOIN orders_amounts a ON a.order_id=o.id WHERE o.id=?",id).firstOrNull() ?: missing()),
+        "lines" to db.rows("SELECT to_jsonb(l)||jsonb_build_object('unit_price',p.unit_price::text,'line_total',(p.unit_price*l.quantity)::text,'cost_components',p.components,'cost_issues',p.issues) FROM get_order_contents(?) l CROSS JOIN LATERAL orders_item_cost(l.product_id,l.variant_id) p ORDER BY l.line_number",id)
     )
     @Transactional
     fun customer(id: Long?, r: CustomerRequest): Long {
@@ -65,6 +69,17 @@ class OrderService(private val db: OrderRepository) {
         if(id==null)return db.id("INSERT INTO configuration_parameter(code,name,data_type,unit_of_measure_id,enumeration_id,required,min_value,max_value,template_id) VALUES(?,?,?,?,?,?,?,?,?) RETURNING id",*(values+template))
         changed(db.execute("UPDATE configuration_parameter SET code=?,name=?,data_type=?,unit_of_measure_id=?,enumeration_id=?,required=?,min_value=?,max_value=? WHERE id=? AND template_id=?",*(values+id+template)));return id
     }
+    @Transactional
+    fun saveComponent(template: Long,id: Long?,r: ConfigurationComponentRequest): Long {
+        db.lock();record("product_template",template)
+        check(r.quantity>=BigDecimal.ZERO && r.quantity<BigDecimal("10000000000000") && r.quantity.stripTrailingZeros().scale()<=6,"Количество компонента должно быть неотрицательным числом с точностью до 6 знаков")
+        check(r.whenValues.isObject,"Условие компонента должно содержать значения параметров")
+        val args=arrayOf<Any?>(r.componentId,r.quantity,r.quantityParameterId,db.encode(r.whenValues),r.selectionGroup.trim(),r.requiredGroup)
+        if(id==null)return db.id("INSERT INTO configuration_component(component_id,quantity,quantity_parameter_id,when_values,selection_group,required_group,template_id) VALUES(?,?,?,?::jsonb,?,?,?) RETURNING id",*(args+template))
+        changed(db.execute("UPDATE configuration_component SET component_id=?,quantity=?,quantity_parameter_id=?,when_values=?::jsonb,selection_group=?,required_group=? WHERE id=? AND template_id=?",*(args+id+template)));return id
+    }
+    @Transactional
+    fun deleteComponent(template: Long,id: Long) {db.lock();changed(db.execute("DELETE FROM configuration_component WHERE id=? AND template_id=?",id,template))}
     @Transactional
     fun saveRule(template: Long,id: Long?,r: ConfigurationRuleRequest): Long {
         db.lock();record("product_template",template)
@@ -140,6 +155,7 @@ class OrderService(private val db: OrderRepository) {
         db.lock();record("product_template",id)
         check(db.rows("SELECT to_jsonb(v) FROM product_variant v WHERE template_id=? LIMIT 1",id).isEmpty(),"У шаблона есть варианты исполнения")
         db.rows("SELECT to_jsonb(r) FROM configuration_rule r WHERE template_id=?",id).forEach { deleteRule(id,it["id"].asLong()) }
+        db.execute("DELETE FROM configuration_component WHERE template_id=?",id)
         db.execute("DELETE FROM configuration_parameter WHERE template_id=?",id);db.execute("DELETE FROM product_template WHERE id=?",id)
     }
     fun document(id: Long): String {
@@ -147,11 +163,14 @@ class OrderService(private val db: OrderRepository) {
         @Suppress("UNCHECKED_CAST") val lines=data["lines"] as List<JsonNode>
         fun h(s: String)=s.replace("&","&amp;").replace("<","&lt;").replace(">","&gt;").replace("\"","&quot;").replace("'","&#39;")
         fun value(v: JsonNode)=if(v.isNull)"" else if(v.isTextual)v.asText() else v.toString()
+        val currency=DecimalFormat("#,##0.00",DecimalFormatSymbols.getInstance(Locale.forLanguageTag("ru-RU")))
+        fun money(v: JsonNode)=if(v.isNull)"Не рассчитана" else currency.format(v.asText().toBigDecimal())+" ₽"
         val rows=lines.joinToString("") { l->
             val params=l["parameters"].joinToString("<br>") { p->h(p["name"].asText())+": "+h(value(p["value"]))+" "+h(if(p["unit"].isNull)"" else p["unit"].asText()) }
-            "<tr><td>${l["line_number"].asInt()}</td><td>${h(l["code"].asText())}</td><td>${h(l["name"].asText())}</td><td>$params</td><td>${l["quantity"].asInt()}</td><td>${h(value(l["note"]))}</td></tr>"
+            "<tr><td>${l["line_number"].asInt()}</td><td>${h(l["code"].asText())}</td><td>${h(l["name"].asText())}</td><td>$params</td><td>${l["quantity"].asInt()}</td><td class=money>${money(l["unit_price"])}</td><td class=money>${money(l["line_total"])}</td><td>${h(value(l["note"]))}</td></tr>"
         }
-        return """<!doctype html><html lang="ru"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Заказ ${h(o["order_number"].asText())}</title><style>body{font:15px Arial,sans-serif;max-width:1100px;margin:32px auto;padding:16px;color:#172238}table{width:100%;border-collapse:collapse}td,th{border:1px solid #bbc5d2;padding:10px;text-align:left}h1{font-size:24px}@media print{button{display:none}body{margin:0;padding:0}@page{size:A4 landscape;margin:15mm}}</style><button onclick="window.print()">Печать заказа</button><h1>Заказ ${h(o["order_number"].asText())} от ${h(o["order_date"].asText())}</h1><p>Заказчик: ${h(c["name"].asText())}<br>Контакт: ${h(value(c["contact_person"]))} ${h(value(c["phone"]))} ${h(value(c["email"]))}<br>Желаемый срок: ${h(value(o["requested_date"]))}</p><table><thead><tr><th>№</th><th>Код</th><th>Изделие / исполнение</th><th>Параметры исполнения</th><th>Количество</th><th>Примечание</th></tr></thead><tbody>$rows</tbody></table></html>"""
+        val total=if(o["total_amount"].isNull)"Сумма позиций с ценой: ${money(o["priced_subtotal"])}. Не рассчитана стоимость ${o["unpriced_line_count"].asInt()} позиций; итог не рассчитан." else "Итого: ${money(o["total_amount"])}"
+        return """<!doctype html><html lang="ru"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Заказ ${h(o["order_number"].asText())}</title><style>body{font:15px Arial,sans-serif;max-width:1100px;margin:32px auto;padding:16px;color:#172238}table{width:100%;border-collapse:collapse}td,th{border:1px solid #bbc5d2;padding:10px;text-align:left}h1{font-size:24px}.money{white-space:nowrap;text-align:right}.total{font-size:18px;text-align:right;font-weight:bold}td{overflow-wrap:anywhere}@media print{button{display:none}body{margin:0;padding:0}@page{size:A4 landscape;margin:15mm}}</style><button onclick="window.print()">Печать заказа</button><h1>Заказ ${h(o["order_number"].asText())} от ${h(o["order_date"].asText())}</h1><p>Заказчик: ${h(c["name"].asText())}<br>Контакт: ${h(value(c["contact_person"]))} ${h(value(c["phone"]))} ${h(value(c["email"]))}<br>Желаемый срок: ${h(value(o["requested_date"]))}</p><table><thead><tr><th>№</th><th>Код</th><th>Изделие / исполнение</th><th>Параметры исполнения</th><th>Количество</th><th>Цена за единицу</th><th>Сумма</th><th>Примечание</th></tr></thead><tbody>$rows</tbody></table><p class="total">$total</p><p>Стоимость рассчитана по составу изделий и текущим ценам материалов, деталей и компонентов.</p></html>"""
     }
     private fun record(table: String,id: Long): JsonNode {
         // Имена таблиц задаются только константами методов сервиса.

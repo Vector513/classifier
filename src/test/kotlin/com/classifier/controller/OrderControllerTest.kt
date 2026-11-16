@@ -61,6 +61,16 @@ class OrderControllerTest {
     private fun order()=post("",mapOf("customerId" to customer,"orderNumber" to "O-${count("customer_order")}","orderDate" to "2026-11-14","requestedDate" to "2026-11-28"))["id"].asLong()
     private fun rule(code: String,expression: Any)=post("/templates/$template/rules",mapOf("code" to code,"name" to code,"errorMessage" to "Правило $code нарушено","expression" to expression))["id"].asLong()
     private fun function(code: String,expr: Any,params: List<String> = listOf("a","b"),result: String="BOOLEAN")=post("/functions",mapOf("code" to code,"name" to code,"resultType" to result,"parameters" to params.map { mapOf("code" to it,"dataType" to "NUMBER") },"expression" to expr))["id"].asLong()
+    private fun resourcePrice(node: Long,price: String,code: String="PRICE") {
+        val rub=jdbc.queryForList("SELECT id FROM unit_of_measure WHERE code='RUB'",Long::class.java).firstOrNull()
+            ?: scalar("INSERT INTO unit_of_measure(code,name) VALUES('RUB','рубли') RETURNING id")
+        val parameter=jdbc.queryForList("SELECT id FROM numeric_parameter WHERE code=?",Long::class.java,code).firstOrNull()
+            ?: scalar("INSERT INTO numeric_parameter(code,name,unit_of_measure_id,created_at,updated_at) VALUES(?,?,?,now(),now()) RETURNING id",code,code,rub)
+        jdbc.update("INSERT INTO node_numeric_parameter(classifier_node_id,numeric_parameter_id,created_at) VALUES(?,?,now()) ON CONFLICT DO NOTHING",node,parameter)
+        jdbc.update("INSERT INTO node_numeric_value(classifier_node_id,numeric_parameter_id,value,created_at,updated_at) VALUES(?,?,?::numeric,now(),now()) ON CONFLICT(classifier_node_id,numeric_parameter_id) DO UPDATE SET value=excluded.value",node,parameter,price)
+    }
+    private fun component(node: Long,quantity: String="1",quantityParameter: Long?=null,conditions: Map<String,Any> = emptyMap(),group: String="",required: Boolean=false)=
+        post("/templates/$template/components",mapOf("componentId" to node,"quantity" to quantity,"quantityParameterId" to quantityParameter,"whenValues" to conditions,"selectionGroup" to group,"requiredGroup" to required))["id"].asLong()
     @BeforeEach fun setup() {
         jdbc.execute("TRUNCATE classifier_node,enumeration_class,unit_of_measure,numeric_parameter,customer,constraint_function RESTART IDENTITY CASCADE")
         unit=scalar("INSERT INTO unit_of_measure(code,name) VALUES('PCS','штуки') RETURNING id")
@@ -72,6 +82,77 @@ class OrderControllerTest {
         customer=post("/customers",mapOf("name" to "Заказчик","phone" to "+70000000000"))["id"].asLong()
         template=post("/templates",mapOf("productId" to model,"code" to "T","name" to "Шаблон"))["id"].asLong()
         parameter("h");parameter("w");parameter("connection","ENUM",false);parameter("insulated","BOOLEAN",false)
+    }
+    @Test fun `order totals automatically follow resource prices and quantities without manual overrides`() {
+        resourcePrice(product,"10.10")
+        val order=order()
+        post("/$order/lines",mapOf("productId" to product,"quantity" to 3,"unitPrice" to "9999"))
+        assertEquals("30.30",get("/$order")["order"]["total_amount"].asText())
+        resourcePrice(product,"20.20")
+        assertEquals("60.60",get("/$order")["order"]["total_amount"].asText())
+        resourcePrice(product,"12.34","PURCHASE_PRICE")
+        assertEquals("37.02",get("/$order")["order"]["total_amount"].asText())
+        assertEquals("37.02",get("")["orders"].first { it["id"].asLong()==order }["total_amount"].asText())
+        val document=mvc.perform(httpGet("$api/$order/document")).andReturn().response.getContentAsString(Charsets.UTF_8)
+        assertTrue(document.contains("37,02"));assertTrue(document.contains("составу изделий"))
+    }
+    @Test fun `variant cost depends on selected components and numeric parameter quantities`() {
+        resourcePrice(product,"12.34")
+        val h=scalar("SELECT id FROM configuration_parameter WHERE template_id=? AND code='h'",template)
+        component(product,"0.125",h)
+        component(product,"2",conditions=mapOf("connection" to "FLANGE"),group="Соединение",required=true)
+        component(product,"1",conditions=mapOf("connection" to "RAIL"),group="Соединение",required=true)
+        val v=variant(values=mapOf("h" to 16,"w" to 300,"connection" to "FLANGE"))
+        val order=order();post("/$order/lines",mapOf("variantId" to v,"quantity" to 2))
+        val details=get("/$order")
+        assertEquals("49.36",details["lines"][0]["unit_price"].asText())
+        assertEquals("98.72",details["order"]["total_amount"].asText())
+        assertEquals("4.000000",details["lines"][0]["cost_components"][0]["quantity"].asText())
+        val other=variant("OTHER",mapOf("h" to 32,"w" to 300,"connection" to "RAIL"))
+        post("/$order/lines",mapOf("variantId" to other,"quantity" to 1))
+        assertEquals("61.70",get("/$order")["lines"][1]["unit_price"].asText())
+    }
+    @Test fun `nested assemblies expand to leaves without counting assembly retail price twice`() {
+        resourcePrice(product,"2.50")
+        val kit=scalar("INSERT INTO classifier_node(code,name,node_kind,unit_of_measure_id,sort_order,created_at,updated_at) VALUES('KIT','Сборка','PRODUCT',?,0,now(),now()) RETURNING id",unit)
+        jdbc.update("INSERT INTO bom_product(node_id,kind) VALUES(?,'PURCHASED'),(?,'ASSEMBLY')",product,kit)
+        val spec=scalar("INSERT INTO bom_specification(product_id,revision,description) VALUES(?,1,'Состав') RETURNING id",kit)
+        jdbc.update("INSERT INTO bom_line(specification_id,position,component_id,quantity) VALUES(?,1,?,4)",spec,product)
+        jdbc.update("UPDATE bom_specification SET status='RELEASED' WHERE id=?",spec)
+        resourcePrice(kit,"999")
+        component(kit,"2");component(product,"3")
+        val order=order();post("/$order/lines",mapOf("variantId" to variant(),"quantity" to 1))
+        val detail=get("/$order")["lines"][0]
+        assertEquals("27.50",detail["unit_price"].asText());assertEquals(1,detail["cost_components"].size())
+        assertEquals(11,detail["cost_components"][0]["quantity"].asDouble().toInt())
+        post("/$order/lines",mapOf("productId" to kit,"quantity" to 2))
+        assertEquals("47.50",get("/$order")["order"]["total_amount"].asText())
+    }
+    @Test fun `missing component prices and uncovered mandatory groups make total incomplete`() {
+        val rule=component(product,conditions=mapOf("connection" to "FLANGE"),group="Соединение",required=true)
+        val order=order();post("/$order/lines",mapOf("variantId" to variant(),"quantity" to 1))
+        var detail=get("/$order")
+        assertTrue(detail["order"]["total_amount"].isNull)
+        assertTrue(detail["lines"][0]["cost_issues"].toString().contains("обязательной группы"))
+        val noPrice=variant("NO_PRICE",mapOf("h" to 500,"w" to 300,"connection" to "FLANGE"))
+        post("/$order/lines",mapOf("variantId" to noPrice,"quantity" to 1))
+        assertTrue(get("/$order")["lines"][1]["cost_issues"].toString().contains("Не задана цена компонента"))
+        resourcePrice(product,"0")
+        assertEquals("0.00",get("/$order")["lines"][1]["unit_price"].asText())
+        assertTrue(get("/$order")["order"]["total_amount"].isNull)
+        mvc.perform(delete("$api/templates/$template/components/$rule")).andReturn().response.let { assertEquals(204,it.status) }
+        assertTrue(get("/$order")["lines"][0]["cost_issues"].toString().contains("не задан состав"))
+    }
+    @Test fun `component quantities and conditions must refer to the template parameters`() {
+        bad("/templates/$template/components",mapOf("componentId" to product,"quantity" to -1,"whenValues" to emptyMap<String,Any>()))
+        bad("/templates/$template/components",mapOf("componentId" to product,"quantity" to 1,"quantityParameterId" to 999999,"whenValues" to emptyMap<String,Any>()))
+        bad("/templates/$template/components",mapOf("componentId" to product,"quantity" to 1,"whenValues" to mapOf("unknown" to 1)))
+        bad("/templates/$template/components",mapOf("componentId" to product,"quantity" to 1,"whenValues" to mapOf("connection" to "OTHER")))
+        assertEquals(0,count("configuration_component"))
+        component(product,conditions=mapOf("connection" to "FLANGE"))
+        val connection=scalar("SELECT id FROM configuration_parameter WHERE template_id=? AND code='connection'",template)
+        assertThrows(Exception::class.java){jdbc.update("DELETE FROM configuration_parameter WHERE id=?",connection)}
+        assertThrows(Exception::class.java){jdbc.update("UPDATE configuration_parameter SET code='renamed' WHERE id=?",connection)}
     }
     @Test fun `all diagram tables and independent variant JSONB storage are present`() {
         val expected=listOf("customer","customer_order","order_line","product_template","product_variant","configuration_parameter","variant_parameter_value","configuration_rule","expression","constraint_function","formal_parameter")

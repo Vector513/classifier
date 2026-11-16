@@ -19,9 +19,11 @@ class OrderInitializer(private val dataSource: DataSource,
     override fun run(args: ApplicationArguments) {
         load("orders-schema.sql")
         load("orders-logic.sql")
+        load("orders-cost.sql")
         if (demoEnabled) {
             load("orders-demo.sql")
             load("orders-shop-demo.sql")
+            load("orders-cost-demo.sql")
         }
     }
     private fun load(file: String) = ResourceDatabasePopulator(ClassPathResource(file)).apply {

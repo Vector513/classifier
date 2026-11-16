@@ -60,3 +60,10 @@
 .order-function-body h4 { margin: 0; }
 .order-function-body > .btn { justify-self: start; }
 .order-function-body details .order-guided-actions { margin-top: 8px; }
+.order-total{display:flex;justify-content:space-between;align-items:baseline;gap:16px;flex-wrap:wrap;padding-top:20px;margin-top:16px;border-top:1px solid #dae1eb;font-size:1.1rem}
+.order-total>div{text-align:right}.order-price-missing{color:#9a5009;font-weight:600}
+.order-cell-value small,.order-total small{display:block;font-size:.8rem;color:#596c83;margin-top:5px;line-height:1.4}
+.order-money{white-space:nowrap}
+.modal:has(.order-cost-body){max-width:1040px}
+.order-cost-body .table-wrap{overflow-x:auto}
+.order-cost-body td{overflow-wrap:anywhere}

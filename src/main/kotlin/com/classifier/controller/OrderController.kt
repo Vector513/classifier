@@ -21,6 +21,8 @@ class OrderController(private val service: OrderService) {
     @DeleteMapping("/templates/{id}") @ResponseStatus(HttpStatus.NO_CONTENT) fun deleteTemplate(@PathVariable id: Long)=service.deleteTemplate(id)
     @PostMapping("/templates/{template}/parameters") fun parameter(@PathVariable template: Long,@RequestParam(required=false) id: Long?,@RequestBody r: ConfigurationParameterRequest)=mapOf("id" to service.saveParameter(template,id,r))
     @DeleteMapping("/templates/{template}/parameters/{id}") @ResponseStatus(HttpStatus.NO_CONTENT) fun deleteParameter(@PathVariable template: Long,@PathVariable id: Long)=service.deleteParameter(template,id)
+    @PostMapping("/templates/{template}/components") fun component(@PathVariable template: Long,@RequestParam(required=false) id: Long?,@RequestBody r: ConfigurationComponentRequest)=mapOf("id" to service.saveComponent(template,id,r))
+    @DeleteMapping("/templates/{template}/components/{id}") @ResponseStatus(HttpStatus.NO_CONTENT) fun deleteComponent(@PathVariable template: Long,@PathVariable id: Long)=service.deleteComponent(template,id)
     @PostMapping("/templates/{template}/rules") fun rule(@PathVariable template: Long,@RequestParam(required=false) id: Long?,@RequestBody r: ConfigurationRuleRequest)=mapOf("id" to service.saveRule(template,id,r))
     @DeleteMapping("/templates/{template}/rules/{id}") @ResponseStatus(HttpStatus.NO_CONTENT) fun deleteRule(@PathVariable template: Long,@PathVariable id: Long)=service.deleteRule(template,id)
     @PostMapping("/templates/{template}/validate") fun validate(@PathVariable template: Long,@RequestBody r: ValidationRequest)=service.validate(template,r)

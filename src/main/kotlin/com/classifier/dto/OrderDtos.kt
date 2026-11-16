@@ -19,6 +19,9 @@ data class ConstraintFunctionRequest(val code: String, val name: String, val res
     val parameters: List<FormalParameterSpec>, val expression: ExpressionSpec)
 data class VariantRequest(val code: String, val name: String, val values: JsonNode)
 data class ValidationRequest(val values: JsonNode)
+data class ConfigurationComponentRequest(val componentId: Long,val quantity: BigDecimal,
+    val whenValues: JsonNode,val quantityParameterId: Long? = null,
+    val selectionGroup: String = "",val requiredGroup: Boolean = false)
 data class FunctionEvaluationRequest(val arguments: JsonNode)
 data class FunctionTrialRequest(val function: ConstraintFunctionRequest, val arguments: JsonNode)
 data class OrderLineRequest(val quantity: BigDecimal, val productId: Long? = null, val variantId: Long? = null, val note: String? = null)
