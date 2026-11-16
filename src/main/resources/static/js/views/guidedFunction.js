@@ -37,14 +37,29 @@ function parameterCaption(parameter){
  return parameter?.displayName||parameter?.display_name||parameter?.code;
 }
 
-export function guidedFunctionText(node,parameters,functions){
+const templateCaption=parameter=>parameter.unit?`${parameter.name} (${parameter.unit})`:parameter.name;
+const templateParameter=(node,parameters)=>node?.kind==='PARAMETER'
+ ?parameters?.find(parameter=>parameter.code===node.parameterCode):undefined;
+
+export function guidedFunctionText(node,parameters,functions,templateParameters){
  if(!node)return '…';
  if(node.kind==='FORMAL')return parameterCaption(parameters.find(p=>p.code===node.formalCode))||node.formalCode;
+ if(node.kind==='PARAMETER'){
+  const parameter=templateParameter(node,templateParameters);
+  return parameter?templateCaption(parameter):node.parameterCode;
+ }
  if(node.kind==='CONST'){
   if(typeof node.value==='boolean')return node.value?'Да':'Нет';
   return typeof node.value==='string'?`«${node.value}»`:JSON.stringify(node.value);
  }
- const args=node.args.map(child=>guidedFunctionText(child,parameters,functions));
+ const args=node.args.map((child,index)=>{
+  const choices=templateParameter(node.args[index===0?1:0],templateParameters)?.options;
+  if(child?.kind==='CONST'&&choices?.length){
+   const label=value=>choices.find(option=>option.code===value)?.name??value;
+   return Array.isArray(child.value)?child.value.map(label).join(', '):`«${label(child.value)}»`;
+  }
+  return guidedFunctionText(child,parameters,functions,templateParameters);
+ });
  if(node.kind==='CALL')return `${functions.find(f=>f.id===node.functionId)?.name||'Функция'}(${args.join(', ')})`;
  if(node.operator==='IMPLIES')return `Если ${args[0]}, то ${args[1]}`;
  if(node.operator==='IN')return `${args[0]} входит в ${args.slice(1).join(', ')}`;
@@ -53,9 +68,10 @@ export function guidedFunctionText(node,parameters,functions){
  return `${info?.[1]||node.operator||node.parameterCode||node.kind}(${args.join(', ')})`;
 }
 
-function resultOf(node,parameters,functions){
+function resultOf(node,parameters,functions,templateParameters){
  switch(node?.kind){
   case 'FORMAL': return parameters.find(parameter=>parameter.code===node.formalCode)?.dataType;
+  case 'PARAMETER': return templateParameter(node,templateParameters)?.data_type;
   case 'CALL': return functions.find(f=>f.id===node.functionId)?.result_type;
   case 'OPERATOR': return groupOf(node.operator)?.result;
   case 'CONST':
@@ -73,8 +89,8 @@ function missingPath(node,path=[]){
  return null;
 }
 
-function question(parent,index,functions){
- if(!parent)return 'Что должна сделать функция?';
+function question(parent,index,functions,isRule){
+ if(!parent)return isRule?'Что должно быть верно для этой комплектации?':'Что должна сделать функция?';
  if(parent.kind==='CALL'){
   const name=parameterCaption(functions.find(f=>f.id===parent.functionId)?.parameters[index]);
   return name?`Что подставить в «${name}»?`:'Что подставить в эту функцию?';
@@ -87,15 +103,15 @@ function question(parent,index,functions){
  return index===0?'Какое число взять?':'Какое число взять дальше?';
 }
 
-function dataTypeFor(parent,index,parameters,functions){
- if(!parent)return undefined;
+function dataTypeFor(parent,index,parameters,functions,templateParameters){
+ if(!parent)return templateParameters?'BOOLEAN':undefined;
  if(parent.kind==='CALL')return functions.find(f=>f.id===parent.functionId)?.parameters[index]?.data_type;
  const group=groupOf(parent.operator)?.id;
  if(group==='math')return 'NUMBER';
  if(group==='logic')return 'BOOLEAN';
  if(parent.operator==='IN'&&index===1&&parent.args.length===2)return 'LIST';
  const peer=parent.args[index===0?1:0];
- const peerType=resultOf(peer,parameters,functions);
+ const peerType=resultOf(peer,parameters,functions,templateParameters);
  return (peerType==='LIST'?undefined:peerType)||
   (group==='compare'&&!['EQ','NE'].includes(parent.operator)?'ORDERED':undefined);
 }
@@ -117,17 +133,17 @@ function readValue(raw,type){
  return value;
 }
 
-export function guidedFunctionEditor(draft,functions,onProgress){
+export function guidedFunctionEditor(draft,functions,onProgress,templateParameters){
  const root=document.createElement('section');
  root.className='order-function-body';
  let path=missingPath(draft.expression);
  let category=null;
  const locate=indices=>indices.reduce((node,index)=>node.args[index],draft.expression);
  function setAnswer(answer){
-  const previousType=resultOf(draft.expression,draft.parameters,functions);
+  const previousType=resultOf(draft.expression,draft.parameters,functions,templateParameters);
   if(path.length)locate(path.slice(0,-1)).args[path.at(-1)]=answer;
   else draft.expression=answer;
-  const currentType=resultOf(draft.expression,draft.parameters,functions);
+  const currentType=resultOf(draft.expression,draft.parameters,functions,templateParameters);
   if(currentType&&currentType!==previousType)draft.resultType=currentType;
   path=missingPath(draft.expression);
   category=null;
@@ -136,7 +152,7 @@ export function guidedFunctionEditor(draft,functions,onProgress){
  function addEditSteps(panel,entries){
   const details=document.createElement('details');
   details.className='order-function-code';
-  details.innerHTML=`<summary>Изменить отдельный шаг</summary><div class="order-guided-actions">${entries.map(({node,key},i)=>choose(`edit-${i}`,key.length?guidedFunctionText(node,draft.parameters,functions):'Задача функции')).join('')}</div>`;
+  details.innerHTML=`<summary>Изменить отдельный шаг</summary><div class="order-guided-actions">${entries.map(({node,key},i)=>choose(`edit-${i}`,key.length?guidedFunctionText(node,draft.parameters,functions,templateParameters):templateParameters?'Условие правила':'Задача функции')).join('')}</div>`;
   details.addEventListener('click',event=>{
    const choice=event.target.closest('[data-choose]');
    if(!choice)return;
@@ -147,7 +163,7 @@ export function guidedFunctionEditor(draft,functions,onProgress){
  }
  function render(focus=false){
   const entries=[];
-  const summary=guidedFunctionText(draft.expression,draft.parameters,functions);
+  const summary=guidedFunctionText(draft.expression,draft.parameters,functions,templateParameters);
   root.innerHTML=draft.expression?`<div class="order-function-preset"><p class="order-function-preview">${esc(summary)}</p></div>`:'';
   const panel=document.createElement('div');
   panel.className='order-function-body';
@@ -168,20 +184,27 @@ export function guidedFunctionEditor(draft,functions,onProgress){
   const parent=path.length?locate(path.slice(0,-1)):null;
   const index=path.at(-1);
   const node=locate(path);
-  const expected=dataTypeFor(parent,index,draft.parameters,functions);
+  const expected=dataTypeFor(parent,index,draft.parameters,functions,templateParameters);
   const group=groups.find(item=>item.id===category);
-  const listType=resultOf(parent?.args[0],draft.parameters,functions);
+  const listType=resultOf(parent?.args[0],draft.parameters,functions,templateParameters);
+  const matchingParameter=templateParameter(parent?.args[index===0?1:0],templateParameters);
+  const enumOptions=matchingParameter?.data_type==='ENUM'?matchingParameter.options:[];
+  const availableFields=templateParameters?.filter(p=>compatible(p.data_type,expected))||[];
   const available=draft.parameters.filter(p=>compatible(p.dataType,expected));
   const callable=functions.filter(f=>compatible(f.result_type,expected));
   const supportedTypes=inputTypes.filter(([type])=>compatible(type,expected));
-  panel.innerHTML=`<h4 tabindex="-1">${esc(question(parent,index,functions))}</h4>
+  panel.innerHTML=`<h4 tabindex="-1">${esc(question(parent,index,functions,Boolean(templateParameters)))}</h4>
    <div class="orders-error" role="alert" data-answer-error hidden></div>`;
   const choices=document.createElement('div');
   choices.className='order-guided-actions';
   panel.append(choices);
   if(!category&&expected!=='LIST'){
    const opChoices=path.length<35?groups.filter(g=>compatible(g.result,expected)).map(g=>choose(g.id,g.label)):[];
-   const valueChoices=supportedTypes.length?[choose('input','Попросить ввести значение'),choose('constant','Подставить постоянное значение')]:[];
+   const valueChoices=[
+    ...(availableFields.length?[choose('field','Выбрать параметр изделия')]:[]),
+    ...(!templateParameters&&supportedTypes.length?[choose('input','Попросить ввести значение')]:[]),
+    ...(supportedTypes.length?[choose('constant','Подставить постоянное значение')]:[]),
+   ];
    choices.innerHTML=[
     ...available.map(p=>choose(`input:${p.code}`,parameterCaption(p))),
     ...(parent?[...valueChoices,...opChoices]:[...opChoices,...valueChoices]),
@@ -199,17 +222,28 @@ export function guidedFunctionEditor(draft,functions,onProgress){
     }
    });
   }else{
-   const initialType=resultOf(node,draft.parameters,functions);
+   const initialType=resultOf(node,draft.parameters,functions,templateParameters);
    const initial=supportedTypes.find(([type])=>type===initialType)?.[0]??supportedTypes[0]?.[0];
    if(group){
-    choices.innerHTML=group.options.length===1?'':`<label class="order-control">${group.id==='compare'?'Как сравнить?':'Что сделать?'}
-     <select class="select" data-option>${options(group.options,node?.operator)}</select></label>`;
+    const label=group.id==='compare'?'Как сравнить?':'Что сделать?';
+    choices.innerHTML=group.options.length===1?'':`<label class="order-control">${label}
+     <select class="select" data-option aria-label="${label}">${options(group.options,node?.operator)}</select></label>`;
    }else if(category==='call'){
     choices.innerHTML=`<label class="order-control">Какую функцию использовать?
-     <select class="select" data-option>${options(callable.map(f=>[f.id,f.name]),node?.functionId)}</select></label>`;
+     <select class="select" data-option aria-label="Какую функцию использовать?">${options(callable.map(f=>[f.id,f.name]),node?.functionId)}</select></label>`;
+   }else if(category==='field'){
+    choices.innerHTML=`<label class="order-control">Какой параметр использовать?
+     <select class="select" data-option aria-label="Какой параметр использовать?">${options(availableFields.map(p=>[p.code,templateCaption(p)]),node?.parameterCode)}</select></label>`;
+   }else if(expected==='LIST'&&enumOptions?.length){
+    choices.innerHTML=`<fieldset class="order-control"><legend>Выберите допустимые варианты</legend>
+     ${enumOptions.map(option=>`<label><input type="checkbox" data-list-value value="${esc(option.code)}" ${node?.value?.includes?.(option.code)?'checked':''}> ${esc(option.name)}</label>`).join('')}
+     </fieldset>`;
    }else if(expected==='LIST'){
     choices.innerHTML=`<label class="order-control">По одному значению в строке
      <textarea class="textarea" rows="4" data-value>${esc(Array.isArray(node?.value)?node.value.join('\n'):'')}</textarea></label>`;
+   }else if(category==='constant'&&enumOptions?.length){
+    choices.innerHTML=`<label class="order-control">С каким вариантом сравнить?
+     <select class="select" data-value aria-label="С каким вариантом сравнить?">${options(enumOptions.map(option=>[option.code,option.name]),node?.value)}</select></label>`;
    }else{
     const typeChoice=supportedTypes.length>1?`<label class="order-control">Что это за значение?
       <select class="select" data-type>${options(supportedTypes,initial)}</select></label>`:'';
@@ -240,6 +274,12 @@ export function guidedFunctionEditor(draft,functions,onProgress){
       const functionId=Number(selected);
       const args=node?.functionId===functionId?node.args:callable.find(f=>f.id===functionId).parameters.map(()=>null);
       setAnswer({kind:'CALL',functionId,args});
+     }else if(category==='field'){
+      setAnswer({kind:'PARAMETER',parameterCode:selected,args:[]});
+     }else if(expected==='LIST'&&enumOptions?.length){
+      const values=[...choices.querySelectorAll('[data-list-value]:checked')].map(input=>input.value);
+      if(!values.length)throw new Error('Выберите хотя бы один вариант.');
+      setAnswer({kind:'CONST',value:values,args:[]});
      }else if(expected==='LIST'){
       const values=value.split(/\r?\n/).map(item=>item.trim()).filter(Boolean);
       if(!values.length)throw new Error('Введите хотя бы одно значение.');

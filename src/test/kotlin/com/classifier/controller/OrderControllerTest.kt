@@ -182,6 +182,22 @@ class OrderControllerTest {
         assertEquals(expressionCount, count("expression"))
         assertEquals(1, scalar("SELECT count(*) FROM constraint_function WHERE code='TRY_EXISTING'"))
     }
+    @Test fun `trial evaluates just the draft rule and rolls back its expression`() {
+        val original = rule("SAVED", op("GT", p("h"), c(400)))
+        variant()
+        val expressionCount = count("expression")
+        val path = "/templates/$template/rules/trial"
+        val expression = op("IMPLIES", op("EQ", p("connection"), c("FLANGE")), op("GE", p("h"), c(600)))
+
+        assertFalse(post(path, mapOf("expression" to expression, "values" to mapOf("connection" to "FLANGE", "h" to 500))).asBoolean())
+        assertTrue(post(path, mapOf("expression" to expression, "values" to mapOf("connection" to "FLANGE", "h" to 600))).asBoolean())
+        assertTrue(post(path, mapOf("expression" to expression, "values" to mapOf("connection" to "RAIL", "h" to 100))).asBoolean())
+        bad(path, mapOf("expression" to p("h"), "values" to mapOf("h" to 500)))
+
+        assertEquals(expressionCount, count("expression"))
+        assertEquals(1L, count("configuration_rule"))
+        assertEquals(original, get("/templates/$template")["rules"][0]["id"].asLong())
+    }
     @Test fun `runtime functions evaluate nested arithmetic and reject ratio violations atomically`() {
         val f=function("RATIO",op("AND",op("GE",op("DIV",a("a"),a("b")),c(.5)),op("LE",op("DIV",a("a"),a("b")),c(2))))
         rule("RATIO",call(f,p("h"),p("w")))

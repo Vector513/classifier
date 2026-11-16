@@ -14,6 +14,7 @@ data class ExpressionSpec(val kind: String, val operator: String? = null, val pa
     val formalCode: String? = null, val functionId: Long? = null, val value: JsonNode? = null,
     val args: List<ExpressionSpec> = emptyList())
 data class ConfigurationRuleRequest(val code: String, val name: String, val errorMessage: String, val expression: ExpressionSpec)
+data class RuleTrialRequest(val expression: ExpressionSpec, val values: JsonNode)
 data class FormalParameterSpec(val code: String, val dataType: String, val displayName: String? = null)
 data class ConstraintFunctionRequest(val code: String, val name: String, val resultType: String,
     val parameters: List<FormalParameterSpec>, val expression: ExpressionSpec)

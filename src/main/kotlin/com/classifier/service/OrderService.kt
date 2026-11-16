@@ -85,6 +85,17 @@ class OrderService(private val db: OrderRepository) {
         db.lock();record("product_template",template)
         return db.id("SELECT orders_save_rule(?,?,?,?,?,?::jsonb)",id,template,required(r.code,100),required(r.name,255),required(r.errorMessage,10000),db.encode(r.expression))
     }
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    fun tryRule(template: Long, request: RuleTrialRequest): Boolean {
+        check(request.values.isObject, "Укажите значения параметров для примера")
+        TransactionAspectSupport.currentTransactionStatus().setRollbackOnly()
+        db.lock()
+        record("product_template", template)
+        val root = db.id("SELECT orders_save_expression(?::jsonb, ?)", db.encode(request.expression), template)
+        val type = db.json("SELECT to_jsonb(orders_expression_type(?, ?, NULL))", root, template)
+        check(type.asText() == "BOOLEAN", "Условие должно возвращать «Да» или «Нет»")
+        return db.json("SELECT orders_eval_expression(?, ?::jsonb)", root, db.encode(request.values)).booleanValue()
+    }
     @Transactional
     fun saveFunction(id: Long?,r: ConstraintFunctionRequest): Long {
         db.lock();if(id!=null)record("constraint_function",id)

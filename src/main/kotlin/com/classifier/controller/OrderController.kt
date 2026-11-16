@@ -24,6 +24,9 @@ class OrderController(private val service: OrderService) {
     @PostMapping("/templates/{template}/components") fun component(@PathVariable template: Long,@RequestParam(required=false) id: Long?,@RequestBody r: ConfigurationComponentRequest)=mapOf("id" to service.saveComponent(template,id,r))
     @DeleteMapping("/templates/{template}/components/{id}") @ResponseStatus(HttpStatus.NO_CONTENT) fun deleteComponent(@PathVariable template: Long,@PathVariable id: Long)=service.deleteComponent(template,id)
     @PostMapping("/templates/{template}/rules") fun rule(@PathVariable template: Long,@RequestParam(required=false) id: Long?,@RequestBody r: ConfigurationRuleRequest)=mapOf("id" to service.saveRule(template,id,r))
+    @PostMapping("/templates/{template}/rules/trial")
+    fun ruleTrial(@PathVariable template: Long, @RequestBody request: RuleTrialRequest) =
+        service.tryRule(template, request)
     @DeleteMapping("/templates/{template}/rules/{id}") @ResponseStatus(HttpStatus.NO_CONTENT) fun deleteRule(@PathVariable template: Long,@PathVariable id: Long)=service.deleteRule(template,id)
     @PostMapping("/templates/{template}/validate") fun validate(@PathVariable template: Long,@RequestBody r: ValidationRequest)=service.validate(template,r)
     @PostMapping("/templates/{template}/variants") fun variantSave(@PathVariable template: Long,@RequestBody r: VariantRequest)=mapOf("id" to service.createVariant(template,r))
